@@ -352,6 +352,8 @@ export class BasePlaylistController extends Logger implements NetworkComponentAP
 // @public (undocumented)
 export class BaseSegment {
     constructor(base: Base | string);
+    // (undocumented)
+    algoRelurl?: string;
     // Warning: (ae-forgotten-export) The symbol "Base" needs to be exported by the entry point hls.d.ts
     //
     // (undocumented)
@@ -1463,6 +1465,12 @@ export enum ErrorTypes {
 // @public (undocumented)
 export enum Events {
     // (undocumented)
+    ALGO_DATA_ERROR = "hlsAlgoDataError",
+    // (undocumented)
+    ALGO_DATA_LOADED = "hlsAlgoDataLoaded",
+    // (undocumented)
+    ALGO_DATA_LOADING = "hlsAlgoDataLoading",
+    // (undocumented)
     ASSET_LIST_LOADED = "hlsAssetListLoaded",
     // (undocumented)
     ASSET_LIST_LOADING = "hlsAssetListLoading",
@@ -2113,12 +2121,15 @@ class Hls implements HlsEventEmitter {
     // Warning: (ae-setter-with-docs) The doc comment for the property "firstLevel" must appear on the getter, not the setter.
     set firstLevel(newLevel: number);
     get forceStartLoad(): boolean;
+    // Warning: (ae-forgotten-export) The symbol "FrameItem" needs to be exported by the entry point hls.d.ts
+    getAlgoFrameByTime(time: number): FrameItem | null;
     getMediaDecodingInfo(level: Level, audioTracks?: MediaPlaylist[]): Promise<MediaDecodingInfo>;
     static getMediaSource(): typeof MediaSource | undefined;
     get hasEnoughToStart(): boolean;
     // (undocumented)
     get inFlightFragments(): InFlightFragments;
     get interstitialsManager(): InterstitialsManager | null;
+    isAlgoDataReady(time: number): boolean;
     static isMSESupported(): boolean;
     static isSupported(): boolean;
     get latency(): number;
@@ -2310,6 +2321,11 @@ export type HlsConfig = {
     preserveManualLevelOnError: boolean;
     timelineOffset?: number;
     ignorePlaylistParsingErrors: boolean;
+    algoDataEnabled: boolean;
+    algoSegmentPattern: RegExp | string;
+    algoPreloadCount: number;
+    algoCacheSize: number;
+    algoFrameRate?: number;
     loader: {
         new (confg: HlsConfig): Loader<LoaderContext>;
     };
@@ -2366,6 +2382,18 @@ export interface HlsEventEmitter {
 //
 // @public
 export interface HlsListeners {
+    // Warning: (ae-forgotten-export) The symbol "AlgoDataErrorData" needs to be exported by the entry point hls.d.ts
+    //
+    // (undocumented)
+    [Events.ALGO_DATA_ERROR]: (event: Events.ALGO_DATA_ERROR, data: AlgoDataErrorData) => void;
+    // Warning: (ae-forgotten-export) The symbol "AlgoDataLoadedData" needs to be exported by the entry point hls.d.ts
+    //
+    // (undocumented)
+    [Events.ALGO_DATA_LOADED]: (event: Events.ALGO_DATA_LOADED, data: AlgoDataLoadedData) => void;
+    // Warning: (ae-forgotten-export) The symbol "AlgoDataLoadingData" needs to be exported by the entry point hls.d.ts
+    //
+    // (undocumented)
+    [Events.ALGO_DATA_LOADING]: (event: Events.ALGO_DATA_LOADING, data: AlgoDataLoadingData) => void;
     // (undocumented)
     [Events.ASSET_LIST_LOADED]: (event: Events.ASSET_LIST_LOADED, data: AssetListLoadedData) => void;
     // (undocumented)
@@ -3838,7 +3866,7 @@ export class M3U8Parser {
     // (undocumented)
     static isMediaPlaylist(str: string): boolean;
     // (undocumented)
-    static parseLevelPlaylist(string: string, baseurl: string, id: number, type: PlaylistLevelType, levelUrlId: number, multivariantVariableList: VariableMap | null): LevelDetails;
+    static parseLevelPlaylist(string: string, baseurl: string, id: number, type: PlaylistLevelType, levelUrlId: number, multivariantVariableList: VariableMap | null, algoSegmentPattern?: RegExp | string | null): LevelDetails;
     // (undocumented)
     static parseMasterPlaylist(string: string, baseurl: string): ParsedMultivariantPlaylist;
     // Warning: (ae-forgotten-export) The symbol "ParsedMultivariantMediaOptions" needs to be exported by the entry point hls.d.ts

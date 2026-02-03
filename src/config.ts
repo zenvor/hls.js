@@ -756,6 +756,9 @@ export function mergeConfig(
 
 function deepCpy(obj: any): any {
   if (obj && typeof obj === 'object') {
+    if (obj instanceof RegExp) {
+      return new RegExp(obj.source, obj.flags);
+    }
     if (Array.isArray(obj)) {
       return obj.map(deepCpy);
     }

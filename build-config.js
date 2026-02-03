@@ -84,6 +84,14 @@ const buildConstants = (type, additional = {}) => ({
 const buildOnLog = ({ allowCircularDeps } = {}) => {
   return (level, log, handler) => {
     if (allowCircularDeps && log.code === 'CIRCULAR_DEPENDENCY') return;
+    if (
+      log.code === 'THIS_IS_UNDEFINED' &&
+      typeof log.id === 'string' &&
+      log.id.includes('node_modules/@msgpack/msgpack')
+    ) {
+      // msgpack 的 ESM 输出包含顶层 this，rollup 的告警可安全忽略
+      return;
+    }
 
     if (level === 'warn') {
       // treat warnings as errors

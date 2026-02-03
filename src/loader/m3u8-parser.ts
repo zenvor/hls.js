@@ -813,6 +813,14 @@ export function mapDateRanges(
   }
 }
 
+const algoSegmentPatternWarnedMessages = new Set<string>();
+
+function warnAlgoSegmentPattern(message: string): void {
+  if (algoSegmentPatternWarnedMessages.has(message)) return;
+  algoSegmentPatternWarnedMessages.add(message);
+  logger.warn(`[m3u8-parser] ${message}`);
+}
+
 function isAlgoSegment(
   uri: string,
   algoSegmentPattern?: RegExp | string | null,
@@ -824,11 +832,22 @@ function isAlgoSegment(
     algoSegmentPattern.lastIndex = 0;
     return algoSegmentPattern.test(uri);
   }
+  if (typeof algoSegmentPattern !== 'string') {
+    warnAlgoSegmentPattern(
+      `algoSegmentPattern 类型非法，已忽略：${String(algoSegmentPattern)}`,
+    );
+    return false;
+  }
+  const trimmedPattern = algoSegmentPattern.trim();
+  if (!trimmedPattern) {
+    warnAlgoSegmentPattern('algoSegmentPattern 为空，已忽略');
+    return false;
+  }
   try {
-    return new RegExp(algoSegmentPattern).test(uri);
+    return new RegExp(trimmedPattern).test(uri);
   } catch (error) {
-    logger.warn(
-      `[m3u8-parser] algoSegmentPattern 无效，已忽略：${algoSegmentPattern}`,
+    warnAlgoSegmentPattern(
+      `algoSegmentPattern 无效，已忽略：${algoSegmentPattern}`,
     );
     return false;
   }
