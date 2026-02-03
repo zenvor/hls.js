@@ -2,6 +2,7 @@ import { uuid } from '@svta/common-media-library/utils/uuid';
 import { EventEmitter } from 'eventemitter3';
 import { buildAbsoluteURL } from 'url-toolkit';
 import { enableStreamingMode, hlsDefaultConfig, mergeConfig } from './config';
+import AlgoDataController from './controller/algo-data-controller';
 import { FragmentTracker } from './controller/fragment-tracker';
 import GapController from './controller/gap-controller';
 import ID3TrackController from './controller/id3-track-controller';
@@ -46,6 +47,7 @@ import type FragmentLoader from './loader/fragment-loader';
 import type { LevelDetails } from './loader/level-details';
 import type M3U8Parser from './loader/m3u8-parser';
 import type TaskLoop from './task-loop';
+import type { FrameItem } from './types/algo';
 import type { AttachMediaSourceData } from './types/buffer';
 import type {
   AbrComponentAPI,
@@ -99,6 +101,7 @@ export default class Hls implements HlsEventEmitter {
   private latencyController: LatencyController;
   private levelController: LevelController;
   private streamController: StreamController;
+  private algoDataController?: AlgoDataController;
   private audioStreamController?: AudioStreamController;
   private subtititleStreamController?: SubtitleStreamController;
   private audioTrackController?: AudioTrackController;
@@ -240,6 +243,10 @@ export default class Hls implements HlsEventEmitter {
       keyLoader,
     ));
 
+    const algoDataController = config.algoDataEnabled
+      ? (this.algoDataController = new AlgoDataController(this))
+      : null;
+
     const gapController = (this.gapController = new GapController(
       this,
       fragmentTracker,
@@ -255,6 +262,9 @@ export default class Hls implements HlsEventEmitter {
       levelController,
       streamController,
     ];
+    if (algoDataController) {
+      networkControllers.push(algoDataController);
+    }
     if (interstitialsController) {
       networkControllers.splice(1, 0, interstitialsController);
     }
@@ -595,6 +605,20 @@ export default class Hls implements HlsEventEmitter {
    */
   get loadingEnabled(): boolean {
     return this.started;
+  }
+
+  /**
+   * 根据时间获取算法帧数据
+   */
+  getAlgoFrameByTime(time: number): FrameItem | null {
+    return this.algoDataController?.getFrameByTime(time) || null;
+  }
+
+  /**
+   * 判断时间点的算法数据是否已就绪
+   */
+  isAlgoDataReady(time: number): boolean {
+    return this.algoDataController?.isDataReady(time) || false;
   }
 
   /**

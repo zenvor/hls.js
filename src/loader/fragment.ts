@@ -45,6 +45,8 @@ export class BaseSegment {
   // relurl is the portion of the URL that comes from inside the playlist.
   public relurl?: string;
 
+  public algoRelurl?: string;
+
   constructor(base: Base | string) {
     if (typeof base === 'string') {
       base = { url: base };

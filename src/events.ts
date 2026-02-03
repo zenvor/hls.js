@@ -1,4 +1,7 @@
 import type {
+  AlgoDataErrorData,
+  AlgoDataLoadedData,
+  AlgoDataLoadingData,
   AssetListLoadedData,
   AssetListLoadingData,
   AudioTrackLoadedData,
@@ -174,6 +177,12 @@ export enum Events {
   FRAG_BUFFERED = 'hlsFragBuffered',
   // fired when fragment matching with current media position is changing - data : { id : demuxer id, frag : fragment object }
   FRAG_CHANGED = 'hlsFragChanged',
+  // fired when an algo data segment loading starts - data: { frag: fragment object, url: string }
+  ALGO_DATA_LOADING = 'hlsAlgoDataLoading',
+  // fired when an algo data segment loading finishes - data: { frag: fragment object, url: string, chunk: AlgoChunk }
+  ALGO_DATA_LOADED = 'hlsAlgoDataLoaded',
+  // fired when an algo data segment loading fails - data: { frag: fragment object, url: string, error: Error }
+  ALGO_DATA_ERROR = 'hlsAlgoDataError',
   // Identifier for a FPS drop event - data: { currentDropped, currentDecoded, totalDroppedFrames }
   FPS_DROP = 'hlsFpsDrop',
   // triggered when FPS drop triggers auto level capping - data: { level, droppedLevel }
@@ -418,6 +427,18 @@ export interface HlsListeners {
   [Events.FRAG_CHANGED]: (
     event: Events.FRAG_CHANGED,
     data: FragChangedData,
+  ) => void;
+  [Events.ALGO_DATA_LOADING]: (
+    event: Events.ALGO_DATA_LOADING,
+    data: AlgoDataLoadingData,
+  ) => void;
+  [Events.ALGO_DATA_LOADED]: (
+    event: Events.ALGO_DATA_LOADED,
+    data: AlgoDataLoadedData,
+  ) => void;
+  [Events.ALGO_DATA_ERROR]: (
+    event: Events.ALGO_DATA_ERROR,
+    data: AlgoDataErrorData,
   ) => void;
   [Events.FPS_DROP]: (event: Events.FPS_DROP, data: FPSDropData) => void;
   [Events.FPS_DROP_LEVEL_CAPPING]: (

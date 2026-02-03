@@ -35,6 +35,7 @@ import type {
 } from '../controller/interstitials-schedule';
 import type { ErrorDetails, ErrorTypes } from '../errors';
 import type { HlsListeners } from '../events';
+import type { AlgoChunk } from './algo';
 import type { NullableNetworkDetails } from './network-details';
 import type { Fragment, MediaFragment, Part } from '../loader/fragment';
 import type {
@@ -293,6 +294,28 @@ export interface SubtitleFragProcessed {
 
 export interface FragChangedData {
   frag: Fragment;
+}
+
+export interface AlgoDataLoadingData {
+  frag: Fragment;
+  url: string;
+}
+
+export interface AlgoDataLoadedData {
+  frag: Fragment;
+  url: string;
+  chunk: AlgoChunk;
+  networkDetails: NullableNetworkDetails;
+  stats: LoaderStats;
+}
+
+export interface AlgoDataErrorData {
+  frag: Fragment;
+  url: string;
+  error: Error;
+  reason: string;
+  networkDetails?: NullableNetworkDetails;
+  stats?: LoaderStats;
 }
 
 export interface FPSDropData {

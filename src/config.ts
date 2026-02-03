@@ -297,6 +297,11 @@ export type HlsConfig = {
   preserveManualLevelOnError: boolean;
   timelineOffset?: number;
   ignorePlaylistParsingErrors: boolean;
+  algoDataEnabled: boolean;
+  algoSegmentPattern: RegExp | string;
+  algoPreloadCount: number;
+  algoCacheSize: number;
+  algoFrameRate?: number;
   loader: { new (confg: HlsConfig): Loader<LoaderContext> };
   fLoader?: FragmentLoaderConstructor;
   pLoader?: PlaylistLoaderConstructor;
@@ -422,6 +427,11 @@ export const hlsDefaultConfig: HlsConfig = {
   appendErrorMaxRetry: 3, // used by buffer-controller
   appendTimeout: Infinity, // used by buffer-controller
   ignorePlaylistParsingErrors: false,
+  algoDataEnabled: false,
+  algoSegmentPattern: /_algo_.*_dat\.ts$/i,
+  algoPreloadCount: 2,
+  algoCacheSize: 10,
+  algoFrameRate: undefined,
   loader: XhrLoader,
   // loader: FetchLoader,
   fLoader: undefined, // used by fragment-loader

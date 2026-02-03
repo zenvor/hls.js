@@ -548,6 +548,7 @@ class PlaylistLoader implements NetworkComponentAPI {
         ? (id as number)
         : 0;
     const levelType = mapContextToLevelType(context);
+    const algoSegmentPattern = this.hls.config.algoSegmentPattern;
     const levelDetails = M3U8Parser.parseLevelPlaylist(
       response.data as string,
       url,
@@ -555,6 +556,7 @@ class PlaylistLoader implements NetworkComponentAPI {
       levelType,
       0,
       this.variableList,
+      algoSegmentPattern,
     );
 
     // We have done our first request (Manifest-type) and receive

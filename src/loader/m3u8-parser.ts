@@ -3,6 +3,7 @@ import { DateRange } from './date-range';
 import { Fragment, Part } from './fragment';
 import { LevelDetails } from './level-details';
 import { LevelKey } from './level-key';
+import { PlaylistLevelType } from '../types/loader';
 import { AttrList } from '../utils/attr-list';
 import { isCodecType } from '../utils/codecs';
 import { logger } from '../utils/logger';
@@ -20,7 +21,6 @@ import type {
   LevelParsed,
   VariableMap,
 } from '../types/level';
-import type { PlaylistLevelType } from '../types/loader';
 import type { MediaAttributes, MediaPlaylist } from '../types/media-playlist';
 import type { CodecType } from '../utils/codecs';
 
@@ -318,6 +318,7 @@ export default class M3U8Parser {
     type: PlaylistLevelType,
     levelUrlId: number,
     multivariantVariableList: VariableMap | null,
+    algoSegmentPattern?: RegExp | string | null,
   ): LevelDetails {
     const base = { url: baseurl };
     const level = new LevelDetails(baseurl);
@@ -387,6 +388,24 @@ export default class M3U8Parser {
         frag.tagList.push(title ? ['INF', duration, title] : ['INF', duration]);
       } else if (result[3]) {
         // url
+        // avoid sliced strings    https://github.com/video-dev/hls.js/issues/939
+        const uri = (' ' + result[3]).slice(1);
+        const relurl = __USE_VARIABLE_SUBSTITUTION__
+          ? substituteVariables(level, uri)
+          : uri;
+        if (
+          type === PlaylistLevelType.MAIN &&
+          isAlgoSegment(relurl, algoSegmentPattern)
+        ) {
+          if (prevFrag) {
+            prevFrag.algoRelurl = relurl;
+          } else {
+            logger.warn(
+              `[m3u8-parser] 发现算法分片但缺少前序视频分片：${relurl}`,
+            );
+          }
+          continue;
+        }
         if (Number.isFinite(frag.duration)) {
           frag.playlistOffset = totalduration;
           frag.setStart(totalduration);
@@ -397,11 +416,7 @@ export default class M3U8Parser {
           frag.level = id;
           frag.cc = discontinuityCounter;
           fragments.push(frag);
-          // avoid sliced strings    https://github.com/video-dev/hls.js/issues/939
-          const uri = (' ' + result[3]).slice(1);
-          frag.relurl = __USE_VARIABLE_SUBSTITUTION__
-            ? substituteVariables(level, uri)
-            : uri;
+          frag.relurl = relurl;
           assignProgramDateTime(
             frag as MediaFragment,
             prevFrag as MediaFragment,
@@ -795,6 +810,27 @@ export function mapDateRanges(
         break;
       }
     }
+  }
+}
+
+function isAlgoSegment(
+  uri: string,
+  algoSegmentPattern?: RegExp | string | null,
+): boolean {
+  if (!algoSegmentPattern) {
+    return false;
+  }
+  if (algoSegmentPattern instanceof RegExp) {
+    algoSegmentPattern.lastIndex = 0;
+    return algoSegmentPattern.test(uri);
+  }
+  try {
+    return new RegExp(algoSegmentPattern).test(uri);
+  } catch (error) {
+    logger.warn(
+      `[m3u8-parser] algoSegmentPattern 无效，已忽略：${algoSegmentPattern}`,
+    );
+    return false;
   }
 }
 
