@@ -615,10 +615,24 @@ export default class Hls implements HlsEventEmitter {
   }
 
   /**
+   * 根据帧索引获取算法帧数据（1-based）
+   */
+  getAlgoFrameByIndex(frameIdx: number): FrameItem | null {
+    return this.algoDataController?.getFrameByIndex(frameIdx) || null;
+  }
+
+  /**
    * 判断时间点的算法数据是否已就绪
    */
   isAlgoDataReady(time: number): boolean {
     return this.algoDataController?.isDataReady(time) || false;
+  }
+
+  /**
+   * 判断帧索引的算法数据是否已就绪（1-based）
+   */
+  isAlgoDataReadyByIndex(frameIdx: number): boolean {
+    return this.algoDataController?.isDataReadyByIndex(frameIdx) || false;
   }
 
   /**

@@ -2121,6 +2121,7 @@ class Hls implements HlsEventEmitter {
     // Warning: (ae-setter-with-docs) The doc comment for the property "firstLevel" must appear on the getter, not the setter.
     set firstLevel(newLevel: number);
     get forceStartLoad(): boolean;
+    getAlgoFrameByIndex(frameIdx: number): FrameItem | null;
     // Warning: (ae-forgotten-export) The symbol "FrameItem" needs to be exported by the entry point hls.d.ts
     getAlgoFrameByTime(time: number): FrameItem | null;
     getMediaDecodingInfo(level: Level, audioTracks?: MediaPlaylist[]): Promise<MediaDecodingInfo>;
@@ -2130,6 +2131,7 @@ class Hls implements HlsEventEmitter {
     get inFlightFragments(): InFlightFragments;
     get interstitialsManager(): InterstitialsManager | null;
     isAlgoDataReady(time: number): boolean;
+    isAlgoDataReadyByIndex(frameIdx: number): boolean;
     static isMSESupported(): boolean;
     static isSupported(): boolean;
     get latency(): number;

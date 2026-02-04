@@ -75,7 +75,20 @@ class AlgoDataController implements NetworkComponentAPI {
     if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
       return null;
     }
-    const frameOffset = Math.floor((time - frag.start) * chunk.frameRate);
+    const frameOffset = Math.round((time - frag.start) * chunk.frameRate);
+    if (frameOffset < 0 || frameOffset >= chunk.frames.length) {
+      return null;
+    }
+    return chunk.frames[frameOffset] || null;
+  }
+
+  public getFrameByIndex(frameIdx: number): FrameItem | null {
+    if (!Number.isFinite(frameIdx)) {
+      return null;
+    }
+    const chunk = this.findChunkByFrameIndex(frameIdx);
+    if (!chunk) return null;
+    const frameOffset = frameIdx - chunk.startFrameIndex;
     if (frameOffset < 0 || frameOffset >= chunk.frames.length) {
       return null;
     }
@@ -95,7 +108,17 @@ class AlgoDataController implements NetworkComponentAPI {
     if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
       return false;
     }
-    const frameOffset = Math.floor((time - frag.start) * chunk.frameRate);
+    const frameOffset = Math.round((time - frag.start) * chunk.frameRate);
+    return frameOffset >= 0 && frameOffset < chunk.frames.length;
+  }
+
+  public isDataReadyByIndex(frameIdx: number): boolean {
+    if (!Number.isFinite(frameIdx)) {
+      return false;
+    }
+    const chunk = this.findChunkByFrameIndex(frameIdx);
+    if (!chunk) return false;
+    const frameOffset = frameIdx - chunk.startFrameIndex;
     return frameOffset >= 0 && frameOffset < chunk.frames.length;
   }
 
@@ -545,6 +568,23 @@ class AlgoDataController implements NetworkComponentAPI {
   private getChunkByFragment(frag: MediaFragment): AlgoChunk | null {
     const key = this.getAlgoChunkKey(frag);
     return this.algoChunkCache.get(key) || null;
+  }
+
+  private findChunkByFrameIndex(frameIdx: number): AlgoChunk | null {
+    const chunks = Array.from(this.algoChunkCache.values());
+    for (let i = 0; i < chunks.length; i += 1) {
+      const chunk = chunks[i];
+      const frameSize =
+        Number.isFinite(chunk.frameSize) && chunk.frameSize > 0
+          ? chunk.frameSize
+          : chunk.frames.length;
+      const start = chunk.startFrameIndex || 1;
+      const end = start + frameSize - 1;
+      if (frameIdx >= start && frameIdx <= end) {
+        return chunk;
+      }
+    }
+    return null;
   }
 
   private findFragmentByTime(
