@@ -3,7 +3,12 @@ import { buildAbsoluteURL } from 'url-toolkit';
 import { findFragmentByPTS } from './fragment-finders';
 import { Events } from '../events';
 import { PlaylistLevelType } from '../types/loader';
-import { getLoaderConfigWithoutReties } from '../utils/error-helper';
+import {
+  getLoaderConfigWithoutReties,
+  getRetryDelay,
+  shouldRetry,
+} from '../utils/error-helper';
+import type { RetryConfig } from '../config';
 import type Hls from '../hls';
 import type { Fragment, MediaFragment } from '../loader/fragment';
 import type { LevelDetails } from '../loader/level-details';
@@ -29,6 +34,7 @@ import type {
   LoaderCallbacks,
   LoaderConfiguration,
   LoaderContext,
+  LoaderResponse,
   LoaderStats,
 } from '../types/loader';
 import type { NullableNetworkDetails } from '../types/network-details';
@@ -39,6 +45,8 @@ class AlgoDataController implements NetworkComponentAPI {
   private algoChunkCache = new Map<number, AlgoChunk>();
   private algoChunkLoading = new Map<number, Loader<LoaderContext>>();
   private algoChunkFailed = new Set<number>();
+  private algoChunkRetryCount = new Map<number, number>();
+  private algoChunkRetryTimer = new Map<number, number>();
   private started = false;
 
   constructor(hls: Hls) {
@@ -71,11 +79,14 @@ class AlgoDataController implements NetworkComponentAPI {
     if (!frag) {
       return null;
     }
+    if (time < frag.start) {
+      return null;
+    }
     const chunk = this.getChunkByFragment(frag);
     if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
       return null;
     }
-    const frameOffset = Math.round((time - frag.start) * chunk.frameRate);
+    const frameOffset = Math.floor((time - frag.start) * chunk.frameRate);
     if (frameOffset < 0 || frameOffset >= chunk.frames.length) {
       return null;
     }
@@ -104,11 +115,14 @@ class AlgoDataController implements NetworkComponentAPI {
     if (!frag) {
       return false;
     }
+    if (time < frag.start) {
+      return false;
+    }
     const chunk = this.getChunkByFragment(frag);
     if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
       return false;
     }
-    const frameOffset = Math.round((time - frag.start) * chunk.frameRate);
+    const frameOffset = Math.floor((time - frag.start) * chunk.frameRate);
     return frameOffset >= 0 && frameOffset < chunk.frames.length;
   }
 
@@ -206,11 +220,13 @@ class AlgoDataController implements NetworkComponentAPI {
     return (
       this.algoChunkCache.has(key) ||
       this.algoChunkLoading.has(key) ||
-      this.algoChunkFailed.has(key)
+      this.algoChunkFailed.has(key) ||
+      this.algoChunkRetryTimer.has(key)
     );
   }
 
   private startAlgoLoad(frag: MediaFragment, algoUrl: string, key: number) {
+    if (!this.started || !this.hls) return;
     const hls = this.hls as Hls;
     const loader = this.createLoader();
     const loaderConfig = this.createLoaderConfig();
@@ -252,6 +268,19 @@ class AlgoDataController implements NetworkComponentAPI {
       },
       onError: (error, context, networkDetails, stats) => {
         this.cleanupLoader(key, loader);
+        const response: LoaderResponse = {
+          url: context.url,
+          data: undefined,
+          code: error.code,
+        };
+        const retried = this.retryAlgoLoad(
+          frag,
+          algoUrl,
+          key,
+          false,
+          response,
+        );
+        if (retried) return;
         this.reportAlgoError(
           frag,
           algoUrl,
@@ -264,6 +293,8 @@ class AlgoDataController implements NetworkComponentAPI {
       },
       onTimeout: (stats, context, networkDetails) => {
         this.cleanupLoader(key, loader);
+        const retried = this.retryAlgoLoad(frag, algoUrl, key, true);
+        if (retried) return;
         this.reportAlgoError(
           frag,
           algoUrl,
@@ -302,6 +333,7 @@ class AlgoDataController implements NetworkComponentAPI {
     const chunk = this.buildAlgoChunk(frag, algoUrl, message);
     const key = this.getAlgoChunkKey(frag);
     this.algoChunkCache.set(key, chunk);
+    this.clearRetryState(key);
     this.evictCache();
 
     const loadedData: AlgoDataLoadedData = {
@@ -654,6 +686,7 @@ class AlgoDataController implements NetworkComponentAPI {
       loader.destroy();
     });
     this.algoChunkLoading.clear();
+    this.clearAllRetryTimers();
   }
 
   private cleanupLoader(key: number, loader: Loader<LoaderContext>) {
@@ -668,10 +701,64 @@ class AlgoDataController implements NetworkComponentAPI {
     this.abortAllLoads();
     this.algoChunkCache.clear();
     this.algoChunkFailed.clear();
+    this.algoChunkRetryCount.clear();
   }
 
   private getLevelDetails(): LevelDetails | null {
     return this.currentLevelDetails || this.hls?.latestLevelDetails || null;
+  }
+
+  private getRetryConfig(isTimeout: boolean): RetryConfig | null {
+    const loadPolicy = this.hls?.config.fragLoadPolicy.default;
+    if (!loadPolicy) return null;
+    return isTimeout ? loadPolicy.timeoutRetry : loadPolicy.errorRetry;
+  }
+
+  private retryAlgoLoad(
+    frag: MediaFragment,
+    algoUrl: string,
+    key: number,
+    isTimeout: boolean,
+    response?: LoaderResponse,
+  ): boolean {
+    const retryConfig = this.getRetryConfig(isTimeout);
+    if (!retryConfig) return false;
+    const retryCount = this.algoChunkRetryCount.get(key) ?? 0;
+    if (!shouldRetry(retryConfig, retryCount, isTimeout, response)) {
+      return false;
+    }
+    const delay = getRetryDelay(retryConfig, retryCount);
+    this.algoChunkRetryCount.set(key, retryCount + 1);
+    this.clearRetryTimer(key);
+    const timer = self.setTimeout(() => {
+      this.algoChunkRetryTimer.delete(key);
+      this.startAlgoLoad(frag, algoUrl, key);
+    }, delay);
+    this.algoChunkRetryTimer.set(key, timer);
+    this.hls?.logger?.warn(
+      `[AlgoData] 算法分片加载失败，准备重试(${retryCount + 1}/${retryConfig.maxNumRetry}) ${delay}ms: ${algoUrl}`,
+    );
+    return true;
+  }
+
+  private clearRetryTimer(key: number) {
+    const timer = this.algoChunkRetryTimer.get(key);
+    if (timer === undefined) return;
+    self.clearTimeout(timer);
+    this.algoChunkRetryTimer.delete(key);
+  }
+
+  private clearAllRetryTimers() {
+    this.algoChunkRetryTimer.forEach((timer) => {
+      self.clearTimeout(timer);
+    });
+    this.algoChunkRetryTimer.clear();
+  }
+
+  private clearRetryState(key: number) {
+    this.algoChunkRetryCount.delete(key);
+    this.clearRetryTimer(key);
+    this.algoChunkFailed.delete(key);
   }
 }
 

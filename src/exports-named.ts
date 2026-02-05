@@ -59,6 +59,18 @@ export { HlsSkip, HlsUrlParameters } from './types/level';
 export { PlaylistLevelType } from './types/loader';
 export { ChunkMetadata } from './types/transmuxer';
 export { BaseSegment, Fragment, Part } from './loader/fragment';
+export type {
+  AutoCameraItem,
+  DetItem,
+  FrameItem,
+  TrackItem,
+  AlgoChunk,
+} from './types/algo';
+export type {
+  AlgoDataErrorData,
+  AlgoDataLoadedData,
+  AlgoDataLoadingData,
+} from './types/events';
 export {
   NetworkErrorAction,
   ErrorActionFlags,

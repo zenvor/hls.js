@@ -395,6 +395,7 @@ export default class M3U8Parser {
           : uri;
         const shouldTreatAsAlgo =
           type === PlaylistLevelType.MAIN &&
+          !!algoSegmentPattern &&
           (isAlgoSegment(relurl, algoSegmentPattern) ||
             isLikelyAlgoSegment(relurl, frag.duration));
         if (shouldTreatAsAlgo) {
