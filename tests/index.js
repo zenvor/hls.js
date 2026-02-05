@@ -2,6 +2,7 @@ import 'promise-polyfill/src/polyfill';
 import './unit/hls';
 import './unit/events';
 import './unit/controller/abr-controller';
+import './unit/controller/algo-data-controller';
 import './unit/controller/audio-stream-controller';
 import './unit/controller/audio-track-controller';
 import './unit/controller/base-stream-controller';
