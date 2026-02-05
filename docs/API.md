@@ -85,6 +85,11 @@ See [API Reference](https://hlsjs-dev.video-dev.org/api-docs/) for a complete li
   - [`appendErrorMaxRetry`](#appenderrormaxretry)
   - [`appendTimeout`](#appendtimeout)
   - [`ignorePlaylistParsingErrors`](#ignoreplaylistparsingerrors)
+  - [`algoDataEnabled`](#algodataenabled)
+  - [`algoSegmentPattern`](#algosegmentpattern)
+  - [`algoPreloadCount`](#algopreloadcount)
+  - [`algoCacheSize`](#algocachesize)
+  - [`algoFrameRate`](#algoframerate)
   - [`loader`](#loader)
   - [`fLoader`](#floader)
   - [`pLoader`](#ploader)
@@ -179,6 +184,11 @@ See [API Reference](https://hlsjs-dev.video-dev.org/api-docs/) for a complete li
   - [`hls.bufferedToEnd`](#hlsbufferedtoend)
   - [`hls.inFlightFragments`](#hlsinflightfragments)
   - [`hls.url`](#hlsurl)
+- [Algo Data API](#algo-data-api)
+  - [`hls.getAlgoFrameByTime(time: number)`](#hlsgetalgoframebytimetime-number)
+  - [`hls.getAlgoFrameByIndex(frameIdx: number)`](#hlsgetalgoframebyindexframeidx-number)
+  - [`hls.isAlgoDataReady(time: number)`](#hlsisalgodatareadytime-number)
+  - [`hls.isAlgoDataReadyByIndex(frameIdx: number)`](#hlsisalgodatareadybyindexframeidx-number)
 - [Audio Tracks Control API](#audio-tracks-control-api)
   - [`hls.setAudioOption(audioOption)`](#hlssetaudiooptionaudiooption)
   - [`hls.allAudioTracks`](#hlsallaudiotracks)
@@ -208,6 +218,7 @@ See [API Reference](https://hlsjs-dev.video-dev.org/api-docs/) for a complete li
   - [`hls.latestLevelDetails`](#hlslatestleveldetails)
   - [`hjs.loadLevelObj`](#hjsloadlevelobj)
   - [`hls.sessionId`](#hlssessionid)
+  - [Algo Data Types](#algo-data-types)
 - [Runtime Events](#runtime-events)
 - [Creating a Custom Loader](#creating-a-custom-loader)
 - [Errors](#errors)
@@ -1176,6 +1187,38 @@ When set to `false`, playlist parsing errors will trigger `ERROR` events with `E
 
 When set to `true`, playlist parsing errors will be ignored and playback will continue. The errors will still be logged but will not trigger error events.
 
+### `algoDataEnabled`
+
+(default: `false`)
+
+Enable algorithm data segment loading for media playlists. When `true`, HLS.js will identify algo segments using `algoSegmentPattern` and load/parse them into memory.
+
+### `algoSegmentPattern`
+
+(default: `/_dat\.ts$/i`)
+
+Regex pattern used to identify algorithm data segments in media playlists. Accepts `RegExp` or `string` (treated as a regex pattern).
+
+If the pattern is invalid or empty, it will be ignored. When enabled, ultra-short segments ending with `_dat.ts` may still be treated as algo segments as a fallback.
+
+### `algoPreloadCount`
+
+(default: `2`)
+
+Number of upcoming algo segments to preload ahead of the current fragment. Values are coerced to a non-negative integer.
+
+### `algoCacheSize`
+
+(default: `10`)
+
+Maximum number of algo chunks kept in memory. Oldest chunks are evicted when the cache exceeds this size.
+
+### `algoFrameRate`
+
+(default: `undefined`)
+
+Override the algorithm frame rate when parsing algo chunks. When omitted, `frameRate` is derived from `frameSize / frag.duration`.
+
 ### `loader`
 
 (default: standard `XMLHttpRequest`-based URL loader)
@@ -2114,6 +2157,26 @@ Example:
 
 get : string of current HLS asset passed to `hls.loadSource()`, otherwise null
 
+## Algo Data API
+
+These methods are available when algo data loading is enabled (`algoDataEnabled = true`) and algo segments have been loaded.
+
+### `hls.getAlgoFrameByTime(time: number)`
+
+- get: Returns the `FrameItem` for the given playback time in seconds, or `null` when not available.
+
+### `hls.getAlgoFrameByIndex(frameIdx: number)`
+
+- get: Returns the `FrameItem` for the given frame index (1-based), or `null` when not available.
+
+### `hls.isAlgoDataReady(time: number)`
+
+- get: Returns whether algo data for the given playback time in seconds is ready.
+
+### `hls.isAlgoDataReadyByIndex(frameIdx: number)`
+
+- get: Returns whether algo data for the given frame index (1-based) is ready.
+
 ## Audio Tracks Control API
 
 ### `hls.setAudioOption(audioOption)`
@@ -2402,6 +2465,59 @@ type InterstitialAssetErrorData = {
 
 get: Returns the session UUID assigned to the Hls instance. Used as the default CMCD session ID.
 
+### Algo Data Types
+
+The following types are used by algo data APIs and events:
+
+```ts
+type AutoCameraItem = {
+  x: number;
+  y: number;
+  focus: number;
+  reserved?: number[];
+};
+
+type TrackItem = {
+  trackId: number;
+  score: number;
+  box: [number, number, number, number];
+  reserved?: number[];
+};
+
+type DetItem = {
+  classId: number;
+  score: number;
+  box: [number, number, number, number];
+  reserved?: number[];
+};
+
+type FrameItem = {
+  frameIdx: number;
+  autoCameras: AutoCameraItem;
+  tracks: TrackItem[];
+  detections: DetItem[];
+};
+
+type AlgoChunk = {
+  fragSn: number;
+  algoUrl: string;
+  chunkIndex: number;
+  frameSize: number;
+  frameRate: number;
+  startFrameIndex: number;
+  frames: FrameItem[];
+};
+
+type AipdMessage = {
+  version: number;
+  chunkIndex: number;
+  frameSize: number;
+  frames: FrameItem[];
+};
+```
+
+`AipdMessage` is the internal decoded message format and is not exported from the public API.
+
 ## Runtime Events
 
 hls.js fires a bunch of events, that could be registered and unregistered as below:
@@ -2513,6 +2629,12 @@ Full list of Events is available below:
   - data: { id: demuxer id, frag : fragment object, stats : [LoadStats] }
 - `Hls.Events.FRAG_CHANGED` - fired when fragment matching with current video position is changing
   - data: { id : demuxer id, frag : fragment object }
+- `Hls.Events.ALGO_DATA_LOADING` - fired when an algo data segment starts loading
+  - data: { frag : fragment object, url : algo segment url }
+- `Hls.Events.ALGO_DATA_LOADED` - fired when an algo data segment is loaded and parsed
+  - data: { frag : fragment object, url : algo segment url, chunk : [AlgoChunk](#algo-data-types), stats : [LoadStats], networkDetails : [Loader specific object for debugging (XMLHttpRequest or fetch Response)] }
+- `Hls.Events.ALGO_DATA_ERROR` - fired when an algo data segment fails to load or parse
+  - data: { frag : fragment object, url : algo segment url, error : Error, reason : string, stats? : [LoadStats], networkDetails? : [Loader specific object for debugging (XMLHttpRequest or fetch Response)] }
 - `Hls.Events.FPS_DROP` - triggered when FPS drop in last monitoring period is higher than given threshold
   - data: { curentDropped : nb of dropped frames in last monitoring period, currentDecoded : nb of decoded frames in last monitoring period, totalDroppedFrames : total dropped frames on this video element }
 - `Hls.Events.FPS_DROP_LEVEL_CAPPING` - triggered when FPS drop triggers auto level capping
