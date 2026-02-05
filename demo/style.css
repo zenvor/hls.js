@@ -197,6 +197,20 @@ select option {
   overflow: auto;
 }
 
+#algoDataOut {
+  height: auto;
+  max-height: 260px;
+  overflow: auto;
+  font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  background: #111;
+  color: #e5e5e5;
+  padding: 8px;
+  border: 1px solid #333;
+  border-radius: 4px;
+}
+
 #streamURL,
 #streamSelect {
   width: calc(100% - 4px);

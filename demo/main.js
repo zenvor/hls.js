@@ -34,6 +34,11 @@ const hlsjsDefaults = {
   enableWorker: true,
   lowLatencyMode: true,
   backBufferLength: 60 * 1.5,
+  // 中文注释：启用算法分片解析，并在解析阶段跳过算法分片
+  algoDataEnabled: true,
+  algoSegmentPattern: '_dat\\.ts$',
+  algoPreloadCount: 2,
+  algoCacheSize: 10,
 };
 
 const hlsjsConfigParam = getURLParam('hlsjsConfig', null);
@@ -75,6 +80,7 @@ let configPersistenceEnabled = false;
 let configEditor = null;
 let chart;
 let resizeAsyncCallbackId = -1;
+const algoChunkKeys = new Set();
 
 const requestAnimationFrame = self.requestAnimationFrame || self.setTimeout;
 const cancelAnimationFrame = self.cancelAnimationFrame || self.clearTimeout;
@@ -310,7 +316,8 @@ function trimEventHistory() {
 }
 
 function loadSelectedStream() {
-  $('#statusOut,#errorOut').empty();
+  $('#statusOut,#errorOut,#algoDataOut').empty();
+  resetAlgoDataOutput();
 
   if (!Hls.isSupported()) {
     handleUnsupported();
@@ -709,6 +716,29 @@ function loadSelectedStream() {
       stats.manualLevelLast = level;
     }
     this.levelLastAuto = autoLevel;
+  });
+
+  hls.on(Hls.Events.ALGO_DATA_LOADED, function (eventName, data) {
+    const chunk = data.chunk;
+    if (!chunk || !Array.isArray(chunk.frames)) {
+      return;
+    }
+    const chunkKey = `${chunk.fragSn}:${chunk.chunkIndex}:${chunk.startFrameIndex}`;
+    if (algoChunkKeys.has(chunkKey)) {
+      return;
+    }
+    algoChunkKeys.add(chunkKey);
+
+    const lines = chunk.frames.map((frame) => {
+      const camera = frame.autoCameras || {};
+      const x = Number.isFinite(camera.x) ? Math.round(camera.x) : 0;
+      const y = Number.isFinite(camera.y) ? Math.round(camera.y) : 0;
+      const focus = Number.isFinite(camera.focus)
+        ? Math.round(camera.focus)
+        : 0;
+      return `${frame.frameIdx},${x},${y},${focus}`;
+    });
+    appendAlgoDataLines(lines);
   });
 
   hls.on(Hls.Events.FRAG_LOAD_EMERGENCY_ABORTED, function (eventName, data) {
@@ -1846,6 +1876,25 @@ function appendLog(textElId, message) {
   logText += newMessage;
   // update
   el.text(logText);
+  const element = el[0];
+  element.scrollTop = element.scrollHeight - element.clientHeight;
+}
+
+function resetAlgoDataOutput() {
+  algoChunkKeys.clear();
+  $('#algoDataOut').text('');
+}
+
+function appendAlgoDataLines(lines) {
+  if (!lines || !lines.length) {
+    return;
+  }
+  const el = $('#algoDataOut');
+  const current = el.text();
+  const nextText = current
+    ? `${current}\n${lines.join('\n')}`
+    : lines.join('\n');
+  el.text(nextText);
   const element = el[0];
   element.scrollTop = element.scrollHeight - element.clientHeight;
 }
