@@ -548,9 +548,8 @@ class PlaylistLoader implements NetworkComponentAPI {
         ? (id as number)
         : 0;
     const levelType = mapContextToLevelType(context);
-    const algoSegmentPattern = this.hls.config.algoDataEnabled
-      ? this.hls.config.algoSegmentPattern
-      : null;
+    // 无论是否启用算法数据加载，都需要跳过算法分片以避免解析为媒体分片
+    const algoSegmentPattern = this.hls.config.algoSegmentPattern ?? null;
     const levelDetails = M3U8Parser.parseLevelPlaylist(
       response.data as string,
       url,

@@ -428,7 +428,7 @@ export const hlsDefaultConfig: HlsConfig = {
   appendTimeout: Infinity, // used by buffer-controller
   ignorePlaylistParsingErrors: false,
   algoDataEnabled: false,
-  algoSegmentPattern: /_algo_.*_dat\.ts$/i,
+  algoSegmentPattern: /_dat\.ts$/i,
   algoPreloadCount: 2,
   algoCacheSize: 10,
   algoFrameRate: undefined,

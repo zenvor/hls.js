@@ -393,10 +393,11 @@ export default class M3U8Parser {
         const relurl = __USE_VARIABLE_SUBSTITUTION__
           ? substituteVariables(level, uri)
           : uri;
-        if (
+        const shouldTreatAsAlgo =
           type === PlaylistLevelType.MAIN &&
-          isAlgoSegment(relurl, algoSegmentPattern)
-        ) {
+          (isAlgoSegment(relurl, algoSegmentPattern) ||
+            isLikelyAlgoSegment(relurl, frag.duration));
+        if (shouldTreatAsAlgo) {
           if (prevFrag) {
             prevFrag.algoRelurl = relurl;
           } else {
@@ -828,9 +829,11 @@ function isAlgoSegment(
   if (!algoSegmentPattern) {
     return false;
   }
+  // 先去掉查询参数和 hash，避免正则因结尾匹配失败
+  const cleanUri = uri.split(/[?#]/)[0];
   if (algoSegmentPattern instanceof RegExp) {
     algoSegmentPattern.lastIndex = 0;
-    return algoSegmentPattern.test(uri);
+    return algoSegmentPattern.test(cleanUri);
   }
   if (typeof algoSegmentPattern !== 'string') {
     warnAlgoSegmentPattern(
@@ -844,13 +847,25 @@ function isAlgoSegment(
     return false;
   }
   try {
-    return new RegExp(trimmedPattern).test(uri);
+    return new RegExp(trimmedPattern).test(cleanUri);
   } catch (error) {
     warnAlgoSegmentPattern(
       `algoSegmentPattern 无效，已忽略：${algoSegmentPattern}`,
     );
     return false;
   }
+}
+
+function isLikelyAlgoSegment(uri: string, duration: number | null): boolean {
+  if (duration === null || !Number.isFinite(duration)) {
+    return false;
+  }
+  // 超短分片且后缀为 _dat.ts 时，视为算法分片兜底处理
+  if (duration > 0.02) {
+    return false;
+  }
+  const cleanUri = uri.split(/[?#]/)[0];
+  return /_dat\.ts$/i.test(cleanUri);
 }
 
 function findFragmentWithStartDate(
