@@ -2124,6 +2124,10 @@ class Hls implements HlsEventEmitter {
     getAlgoFrameByIndex(frameIdx: number): FrameItem | null;
     // Warning: (ae-forgotten-export) The symbol "FrameItem" needs to be exported by the entry point hls.d.ts
     getAlgoFrameByTime(time: number): FrameItem | null;
+    // Warning: (ae-forgotten-export) The symbol "AlgoChunk" needs to be exported by the entry point hls.d.ts
+    //
+    // (undocumented)
+    getAllCachedAlgoChunks(): AlgoChunk[];
     getMediaDecodingInfo(level: Level, audioTracks?: MediaPlaylist[]): Promise<MediaDecodingInfo>;
     static getMediaSource(): typeof MediaSource | undefined;
     get hasEnoughToStart(): boolean;

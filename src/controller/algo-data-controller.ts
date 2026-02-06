@@ -137,6 +137,14 @@ class AlgoDataController implements NetworkComponentAPI {
     return frameOffset >= 0 && frameOffset < chunk.frames.length;
   }
 
+  public getAllCachedChunks(): AlgoChunk[] {
+    return Array.from(this.algoChunkCache.values()).sort((a, b) => {
+      if (a.fragSn !== b.fragSn) return a.fragSn - b.fragSn;
+      if (a.chunkIndex !== b.chunkIndex) return a.chunkIndex - b.chunkIndex;
+      return a.startFrameIndex - b.startFrameIndex;
+    });
+  }
+
   private registerListeners() {
     const hls = this.hls;
     if (!hls) return;
@@ -678,10 +686,9 @@ class AlgoDataController implements NetworkComponentAPI {
   }
 
   private evictCache() {
-    const maxSize = Math.max(
-      1,
-      Math.floor(this.hls?.config.algoCacheSize ?? 0),
-    );
+    const configSize = this.hls?.config.algoCacheSize ?? 0;
+    if (configSize <= 0) return;
+    const maxSize = Math.max(1, Math.floor(configSize));
     if (this.algoChunkCache.size <= maxSize) return;
     while (this.algoChunkCache.size > maxSize) {
       const firstKey = this.algoChunkCache.keys().next().value;

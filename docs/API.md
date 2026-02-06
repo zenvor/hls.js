@@ -1211,7 +1211,7 @@ Number of upcoming algo segments to preload ahead of the current fragment. Value
 
 (default: `10`)
 
-Maximum number of algo chunks kept in memory. Oldest chunks are evicted when the cache exceeds this size.
+Maximum number of algo chunks kept in memory. Oldest chunks are evicted (LRU) when the cache exceeds this size. Set to `0` (or any value `<= 0`) to disable eviction — **not recommended for long playback** as it causes unbounded memory growth. Recommended production value: `500` (covers ~16 min 40 s at 2 s chunk duration).
 
 ### `algoFrameRate`
 

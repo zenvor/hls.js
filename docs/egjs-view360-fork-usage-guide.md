@@ -178,8 +178,9 @@ hlsConfig: {
     algoSegmentPattern: /_dat\.ts$/i,
     // 中文注释：算法分片预加载数量
     algoPreloadCount: 2,
-    // 中文注释：算法分片缓存数量
-    algoCacheSize: 10,
+    // 中文注释：算法分片缓存上限（<=0 表示不淘汰，长播时会导致内存无限增长）
+    // 推荐 500，约覆盖 500 × 分片时长 的时间窗口（2s 分片 ≈ 16 min 40 s）
+    algoCacheSize: 500,
     // 中文注释：算法帧率（需与实际数据一致）
     algoFrameRate: 30,
   },

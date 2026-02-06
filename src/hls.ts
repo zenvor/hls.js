@@ -47,7 +47,7 @@ import type FragmentLoader from './loader/fragment-loader';
 import type { LevelDetails } from './loader/level-details';
 import type M3U8Parser from './loader/m3u8-parser';
 import type TaskLoop from './task-loop';
-import type { FrameItem } from './types/algo';
+import type { AlgoChunk, FrameItem } from './types/algo';
 import type { AttachMediaSourceData } from './types/buffer';
 import type {
   AbrComponentAPI,
@@ -633,6 +633,10 @@ export default class Hls implements HlsEventEmitter {
    */
   isAlgoDataReadyByIndex(frameIdx: number): boolean {
     return this.algoDataController?.isDataReadyByIndex(frameIdx) || false;
+  }
+
+  getAllCachedAlgoChunks(): AlgoChunk[] {
+    return this.algoDataController?.getAllCachedChunks() ?? [];
   }
 
   /**
