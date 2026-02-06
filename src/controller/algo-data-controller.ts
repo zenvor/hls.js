@@ -26,6 +26,7 @@ import type {
   AlgoDataLoadedData,
   AlgoDataLoadingData,
   FragChangedData,
+  FragLoadingData,
   LevelLoadedData,
   LevelUpdatedData,
 } from '../types/events';
@@ -143,6 +144,7 @@ class AlgoDataController implements NetworkComponentAPI {
     hls.on(Events.LEVEL_LOADED, this.onLevelLoaded, this);
     hls.on(Events.LEVEL_UPDATED, this.onLevelUpdated, this);
     hls.on(Events.FRAG_CHANGED, this.onFragChanged, this);
+    hls.on(Events.FRAG_LOADING, this.onFragLoading, this);
   }
 
   private unregisterListeners() {
@@ -152,6 +154,7 @@ class AlgoDataController implements NetworkComponentAPI {
     hls.off(Events.LEVEL_LOADED, this.onLevelLoaded, this);
     hls.off(Events.LEVEL_UPDATED, this.onLevelUpdated, this);
     hls.off(Events.FRAG_CHANGED, this.onFragChanged, this);
+    hls.off(Events.FRAG_LOADING, this.onFragLoading, this);
   }
 
   private onManifestLoading() {
@@ -172,6 +175,19 @@ class AlgoDataController implements NetworkComponentAPI {
     if (frag.type !== PlaylistLevelType.MAIN) return;
     if (!this.currentLevelDetails) return;
     this.preloadFromFragment(frag as MediaFragment);
+  }
+
+  /**
+   * 视频分片开始加载时，同步触发对应算法分片的加载。
+   * FRAG_CHANGED 仅在播放到新分片时触发，无法覆盖提前缓冲的分片，
+   * 因此需要在视频分片开始下载的同一时刻并行加载算法分片，确保一一对应。
+   */
+  private onFragLoading(event: Events.FRAG_LOADING, data: FragLoadingData) {
+    if (!this.started) return;
+    const frag = data.frag;
+    if (frag.type !== PlaylistLevelType.MAIN) return;
+    if (!frag.algoRelurl) return;
+    this.loadAlgoChunk(frag as MediaFragment);
   }
 
   private preloadFromFragment(frag: MediaFragment) {
@@ -273,13 +289,7 @@ class AlgoDataController implements NetworkComponentAPI {
           data: undefined,
           code: error.code,
         };
-        const retried = this.retryAlgoLoad(
-          frag,
-          algoUrl,
-          key,
-          false,
-          response,
-        );
+        const retried = this.retryAlgoLoad(frag, algoUrl, key, false, response);
         if (retried) return;
         this.reportAlgoError(
           frag,
