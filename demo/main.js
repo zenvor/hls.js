@@ -3,6 +3,7 @@
 
 import { pack } from 'jsonpack';
 import 'promise-polyfill/src/polyfill';
+import { decodeMulti } from '@msgpack/msgpack';
 import { sortObject, copyTextToClipboard } from './demo-utils';
 import { TimelineChart } from './chart/timeline-chart';
 
@@ -36,7 +37,7 @@ const hlsjsDefaults = {
   backBufferLength: 60 * 1.5,
   // 中文注释：启用算法分片解析，并在解析阶段跳过算法分片
   algoDataEnabled: true,
-  algoSegmentPattern: '_dat\\.ts$',
+  algoSegmentPattern: '_dat\\.ts($|[?#])',
   algoPreloadCount: 2,
   algoCacheSize: 10,
 };
@@ -92,6 +93,79 @@ const resize = () => {
       handler();
     });
   });
+};
+
+const summarizeAlgoMsgpack = (value, depth = 0) => {
+  if (depth > 3) return '[MaxDepth]';
+  if (value == null) return value;
+  if (
+    typeof value === 'number' ||
+    typeof value === 'string' ||
+    typeof value === 'boolean'
+  ) {
+    return value;
+  }
+  if (value instanceof Uint8Array) {
+    return { __type: 'Uint8Array', length: value.length };
+  }
+  if (Array.isArray(value)) {
+    const head = value
+      .slice(0, 20)
+      .map((v) => summarizeAlgoMsgpack(v, depth + 1));
+    return value.length > 20
+      ? { __type: 'Array', length: value.length, head }
+      : head;
+  }
+  if (typeof value === 'object') {
+    const obj = {};
+    Object.keys(value)
+      .slice(0, 50)
+      .forEach((k) => {
+        obj[k] = summarizeAlgoMsgpack(value[k], depth + 1);
+      });
+    return obj;
+  }
+  return String(value);
+};
+
+const extractAlgoRoot = (items) => {
+  if (!Array.isArray(items)) return null;
+
+  // 处理新格式：[[version, chunkIndex, ...frames]]
+  if (items.length === 1 && Array.isArray(items[0])) {
+    const root = items[0];
+    // 如果长度不是 4，说明是新的扁平化变体或者其他变体
+    if (root.length !== 4 && root.length >= 2) {
+      return {
+        version: root[0],
+        chunkIndex: root[1],
+        frameSize: root.length - 2,
+        frames: root.slice(2),
+      };
+    }
+    // 如果长度是 4，可能是之前定义的 [v, ci, size, frames] 包装在数组里
+    if (root.length === 4) {
+      const [version, chunkIndex, frameSize, frames] = root;
+      return { version, chunkIndex, frameSize, frames };
+    }
+    // 或者是对象
+    if (root && typeof root === 'object' && !Array.isArray(root)) {
+      return {
+        version: root.version,
+        chunkIndex: root.chunkIndex,
+        frameSize: root.frameSize,
+        frames: root.frames,
+      };
+    }
+  }
+
+  // 处理旧格式：v1, v2, v3, v4 依次打包
+  if (items.length === 4) {
+    const [version, chunkIndex, frameSize, frames] = items;
+    return { version, chunkIndex, frameSize, frames };
+  }
+
+  return null;
 };
 
 self.onresize = resize;
@@ -739,6 +813,107 @@ function loadSelectedStream() {
       return `${frame.frameIdx},${x},${y},${focus}`;
     });
     appendAlgoDataLines(lines);
+  });
+
+  hls.on(Hls.Events.ALGO_DATA_LOADING, function (_eventName, data) {
+    const algoUrl = data && data.url;
+    if (!algoUrl) return;
+    fetch(algoUrl)
+      .then((res) => {
+        const contentType = res.headers.get('content-type');
+        return res.arrayBuffer().then((buf) => ({
+          buf,
+          status: res.status,
+          ok: res.ok,
+          contentType,
+        }));
+      })
+      .then(({ buf, status, ok, contentType }) => {
+        const bytes = new Uint8Array(buf);
+        const head = Array.from(bytes.slice(0, 16))
+          .map((b) => b.toString(16).padStart(2, '0'))
+          .join(' ');
+        const looksLikeTs = bytes.length > 0 && bytes[0] === 0x47;
+
+        console.log('[AlgoData][raw fetch]', {
+          url: algoUrl,
+          ok,
+          status,
+          contentType,
+          byteLength: buf.byteLength,
+          headHex: head,
+          looksLikeMpegTs: looksLikeTs,
+        });
+
+        try {
+          const items = Array.from(decodeMulti(bytes));
+          console.log('[AlgoData][raw msgpack decoded]', {
+            url: algoUrl,
+            items: summarizeAlgoMsgpack(items),
+          });
+
+          const root = extractAlgoRoot(items);
+          if (!root) {
+            console.warn('[AlgoData][raw root extract failed]', {
+              url: algoUrl,
+              items: summarizeAlgoMsgpack(items),
+            });
+            return;
+          }
+          console.log('[AlgoData][raw root]', {
+            url: algoUrl,
+            version: root.version,
+            chunkIndex: root.chunkIndex,
+            frameSize: root.frameSize,
+            framesType:
+              root.frames instanceof Uint8Array
+                ? 'Uint8Array'
+                : Array.isArray(root.frames)
+                  ? 'Array'
+                  : typeof root.frames,
+            framesSummary: summarizeAlgoMsgpack(root.frames),
+          });
+
+          // Print only one frame in its raw format
+          let firstFrameRaw = null;
+          if (Array.isArray(root.frames)) {
+            firstFrameRaw = root.frames[0] ?? null;
+          } else if (root.frames instanceof Uint8Array) {
+            const frameItems = Array.from(decodeMulti(root.frames));
+            firstFrameRaw = frameItems[0] ?? null;
+          }
+          if (firstFrameRaw != null) {
+            console.log('[AlgoData][raw first frame]', {
+              url: algoUrl,
+              frame: summarizeAlgoMsgpack(firstFrameRaw),
+            });
+          } else {
+            console.warn('[AlgoData][raw first frame missing]', {
+              url: algoUrl,
+              framesType:
+                root.frames instanceof Uint8Array
+                  ? 'Uint8Array'
+                  : Array.isArray(root.frames)
+                    ? 'Array'
+                    : typeof root.frames,
+            });
+          }
+        } catch (err) {
+          console.warn('[AlgoData][raw msgpack decode failed]', algoUrl, err);
+        }
+      })
+      .catch((err) => {
+        console.warn('[AlgoData][raw fetch failed]', algoUrl, err);
+      });
+  });
+
+  hls.on(Hls.Events.ALGO_DATA_ERROR, function (_eventName, data) {
+    console.warn('[AlgoData][error]', {
+      url: data && data.url,
+      reason: data && data.reason,
+      error: data && data.error,
+      frag: data && data.frag,
+    });
   });
 
   hls.on(Hls.Events.FRAG_LOAD_EMERGENCY_ABORTED, function (eventName, data) {

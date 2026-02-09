@@ -72,26 +72,7 @@ class AlgoDataController implements NetworkComponentAPI {
   }
 
   public getFrameByTime(time: number): FrameItem | null {
-    const levelDetails = this.getLevelDetails();
-    if (!levelDetails || !Number.isFinite(time)) {
-      return null;
-    }
-    const frag = this.findFragmentByTime(levelDetails, time);
-    if (!frag) {
-      return null;
-    }
-    if (time < frag.start) {
-      return null;
-    }
-    const chunk = this.getChunkByFragment(frag);
-    if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
-      return null;
-    }
-    const frameOffset = Math.floor((time - frag.start) * chunk.frameRate);
-    if (frameOffset < 0 || frameOffset >= chunk.frames.length) {
-      return null;
-    }
-    return chunk.frames[frameOffset] || null;
+    return this.resolveFrameByTime(time);
   }
 
   public getFrameByIndex(frameIdx: number): FrameItem | null {
@@ -108,33 +89,31 @@ class AlgoDataController implements NetworkComponentAPI {
   }
 
   public isDataReady(time: number): boolean {
+    return this.resolveFrameByTime(time) !== null;
+  }
+
+  private resolveFrameByTime(time: number): FrameItem | null {
     const levelDetails = this.getLevelDetails();
     if (!levelDetails || !Number.isFinite(time)) {
-      return false;
+      return null;
     }
     const frag = this.findFragmentByTime(levelDetails, time);
-    if (!frag) {
-      return false;
-    }
-    if (time < frag.start) {
-      return false;
+    if (!frag || time < frag.start) {
+      return null;
     }
     const chunk = this.getChunkByFragment(frag);
     if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
-      return false;
+      return null;
     }
     const frameOffset = Math.floor((time - frag.start) * chunk.frameRate);
-    return frameOffset >= 0 && frameOffset < chunk.frames.length;
+    if (frameOffset < 0 || frameOffset >= chunk.frames.length) {
+      return null;
+    }
+    return chunk.frames[frameOffset] || null;
   }
 
   public isDataReadyByIndex(frameIdx: number): boolean {
-    if (!Number.isFinite(frameIdx)) {
-      return false;
-    }
-    const chunk = this.findChunkByFrameIndex(frameIdx);
-    if (!chunk) return false;
-    const frameOffset = frameIdx - chunk.startFrameIndex;
-    return frameOffset >= 0 && frameOffset < chunk.frames.length;
+    return this.getFrameByIndex(frameIdx) !== null;
   }
 
   public getAllCachedChunks(): AlgoChunk[] {
@@ -390,31 +369,52 @@ class AlgoDataController implements NetworkComponentAPI {
 
   private parseAipdMessage(payload: ArrayBuffer): AipdMessage {
     const decodedItems = this.decodeMultiItems(payload);
-    if (decodedItems.length !== 4) {
-      throw new Error('算法数据结构不正确');
-    }
-    const [version, chunkIndex, frameSize, framesRaw] = decodedItems as [
-      number,
-      number,
-      number,
-      unknown[],
-    ];
+    const root = this.extractRootFields(decodedItems);
 
-    if (!Array.isArray(framesRaw)) {
+    if (!Array.isArray(root.framesRaw)) {
       throw new Error('算法帧数据不是数组');
     }
 
-    const frames = this.parseFrames(framesRaw);
-    const normalizedFrameSize = Number(frameSize);
+    const frames = this.parseFrames(root.framesRaw);
 
     return {
-      version: Number(version) || 0,
-      chunkIndex: Number(chunkIndex) || 0,
-      frameSize: Number.isFinite(normalizedFrameSize)
-        ? normalizedFrameSize
-        : frames.length,
+      version: Number(root.version) || 0,
+      chunkIndex: Number(root.chunkIndex) || 0,
+      frameSize: frames.length,
       frames,
     };
+  }
+
+  private extractRootFields(decodedItems: unknown[]): {
+    version: unknown;
+    chunkIndex: unknown;
+    framesRaw: unknown;
+  } {
+    // Format 1: 4 sequential msgpack values [version, chunkIndex, frameSize, frames]
+    if (decodedItems.length === 4) {
+      return {
+        version: decodedItems[0],
+        chunkIndex: decodedItems[1],
+        framesRaw: decodedItems[3],
+      };
+    }
+
+    // Format 2: single msgpack array [version, chunkIndex, frames] (no frameSize)
+    // decodeMulti returns 1 item which is the array
+    if (
+      decodedItems.length === 1 &&
+      Array.isArray(decodedItems[0]) &&
+      decodedItems[0].length >= 3
+    ) {
+      const arr = decodedItems[0];
+      return {
+        version: arr[0],
+        chunkIndex: arr[1],
+        framesRaw: arr.length === 3 ? arr[2] : arr[3],
+      };
+    }
+
+    throw new Error('算法数据结构不正确');
   }
 
   private parseFrames(framesRaw: unknown[]): FrameItem[] {
@@ -424,12 +424,6 @@ class AlgoDataController implements NetworkComponentAPI {
   private parseFrameItem(raw: unknown): FrameItem {
     const [frameIdx, autoCameraRaw, tracksRaw, detectionsRaw] =
       this.decodeBinAsSequence(raw, '算法帧', 4);
-    if (!Array.isArray(tracksRaw)) {
-      throw new Error('tracks_ 不是数组');
-    }
-    if (!Array.isArray(detectionsRaw)) {
-      throw new Error('detections_ 不是数组');
-    }
 
     const autoCameras = this.parseAutoCamera(autoCameraRaw);
     const tracks = this.parseTrackList(tracksRaw);
@@ -444,6 +438,21 @@ class AlgoDataController implements NetworkComponentAPI {
   }
 
   private parseAutoCamera(raw: unknown): AutoCameraItem {
+    // Format 2: already decoded flat array [x, y, focus, r0, r1, r2, r3]
+    if (Array.isArray(raw) && raw.length === 7) {
+      return {
+        x: Number(raw[0]) || 0,
+        y: Number(raw[1]) || 0,
+        focus: Number(raw[2]) || 0,
+        reserved: [
+          Number(raw[3]) || 0,
+          Number(raw[4]) || 0,
+          Number(raw[5]) || 0,
+          Number(raw[6]) || 0,
+        ],
+      };
+    }
+    // Format 1: binary blob or [x, y, focus, [reserved]]
     const [x, y, focus, reserved] = this.decodeBinAsSequence(
       raw,
       '算法相机',
@@ -454,11 +463,11 @@ class AlgoDataController implements NetworkComponentAPI {
       x: Number(x) || 0,
       y: Number(y) || 0,
       focus: Number(focus) || 0,
-      reserved: (reserved as unknown[]).map(Number),
+      reserved: (reserved as unknown[]).map((v) => Number(v) || 0),
     };
   }
 
-  private parseTrackItem(raw: unknown): TrackItem | null {
+  private parseTrackItem(raw: unknown): TrackItem {
     const [trackId, score, boxRaw, reserved] = this.decodeBinAsSequence(
       raw,
       'Track',
@@ -471,11 +480,11 @@ class AlgoDataController implements NetworkComponentAPI {
       trackId: Number(trackId) || 0,
       score: Number(score) || 0,
       box,
-      reserved: (reserved as unknown[]).map(Number),
+      reserved: (reserved as unknown[]).map((v) => Number(v) || 0),
     };
   }
 
-  private parseDetItem(raw: unknown): DetItem | null {
+  private parseDetItem(raw: unknown): DetItem {
     const [classId, score, boxRaw, reserved] = this.decodeBinAsSequence(
       raw,
       'Det',
@@ -488,7 +497,7 @@ class AlgoDataController implements NetworkComponentAPI {
       classId: Number(classId) || 0,
       score: Number(score) || 0,
       box,
-      reserved: (reserved as unknown[]).map(Number),
+      reserved: (reserved as unknown[]).map((v) => Number(v) || 0),
     };
   }
 
@@ -514,7 +523,8 @@ class AlgoDataController implements NetworkComponentAPI {
       const result = decodeMulti(input);
       return Array.isArray(result) ? result : Array.from(result);
     } catch (error) {
-      throw new Error('算法数据解包失败');
+      const reason = error instanceof Error ? error.message : String(error);
+      throw new Error(`算法数据解包失败: ${reason}`);
     }
   }
 
@@ -523,8 +533,16 @@ class AlgoDataController implements NetworkComponentAPI {
     name: string,
     expectedLength: number,
   ): unknown[] {
+    // Format 2: already decoded array
+    if (Array.isArray(value)) {
+      if (value.length !== expectedLength) {
+        throw new Error(`${name} 结构不正确`);
+      }
+      return value;
+    }
+    // Format 1: binary blob, needs msgpack decoding
     if (!(value instanceof Uint8Array)) {
-      throw new Error(`${name} 数据不是二进制`);
+      throw new Error(`${name} 数据格式不支持`);
     }
     const items = this.decodeMultiItems(value);
     if (items.length !== expectedLength) {
@@ -547,14 +565,14 @@ class AlgoDataController implements NetworkComponentAPI {
     if (!Array.isArray(value)) {
       throw new Error('tracks_ 不是数组');
     }
-    return value.map((item) => this.parseTrackItem(item) as TrackItem);
+    return value.map((item) => this.parseTrackItem(item));
   }
 
   private parseDetList(value: unknown): DetItem[] {
     if (!Array.isArray(value)) {
       throw new Error('detections_ 不是数组');
     }
-    return value.map((item) => this.parseDetItem(item) as DetItem);
+    return value.map((item) => this.parseDetItem(item));
   }
 
   private buildAlgoChunk(
@@ -565,18 +583,9 @@ class AlgoDataController implements NetworkComponentAPI {
     const hls = this.hls;
     const logger = hls?.logger;
 
-    if (message.frameSize !== message.frames.length) {
-      logger?.warn(
-        `[AlgoData] 帧数量与 frameSize 不一致，chunkIndex=${message.chunkIndex} frameSize=${message.frameSize} frames=${message.frames.length}`,
-      );
-    }
-
     this.checkFrameSequence(message.frames, message.chunkIndex, logger);
 
-    const frameCount =
-      Number.isFinite(message.frameSize) && message.frameSize > 0
-        ? message.frameSize
-        : message.frames.length;
+    const frameCount = message.frames.length;
     const configFrameRate = hls?.config.algoFrameRate;
     const frameRate =
       Number.isFinite(configFrameRate) && configFrameRate! > 0
@@ -591,7 +600,7 @@ class AlgoDataController implements NetworkComponentAPI {
       chunkIndex: message.chunkIndex,
       frameSize: message.frameSize,
       frameRate,
-      startFrameIndex: message.frames[0]?.frameIdx || 1,
+      startFrameIndex: message.frames[0]?.frameIdx ?? 1,
       frames: message.frames,
     };
   }
@@ -602,9 +611,9 @@ class AlgoDataController implements NetworkComponentAPI {
     logger?: { warn: (msg: string) => void },
   ) {
     if (frames.length <= 1) return;
-    let prevIndex = frames[0]?.frameIdx || 0;
+    let prevIndex = frames[0]?.frameIdx ?? 0;
     for (let i = 1; i < frames.length; i += 1) {
-      const current = frames[i]?.frameIdx || 0;
+      const current = frames[i]?.frameIdx ?? 0;
       if (current !== prevIndex + 1) {
         logger?.warn(
           `[AlgoData] 帧索引不连续，chunkIndex=${chunkIndex} prev=${prevIndex} current=${current}`,
@@ -628,7 +637,7 @@ class AlgoDataController implements NetworkComponentAPI {
         Number.isFinite(chunk.frameSize) && chunk.frameSize > 0
           ? chunk.frameSize
           : chunk.frames.length;
-      const start = chunk.startFrameIndex || 1;
+      const start = chunk.startFrameIndex ?? 1;
       const end = start + frameSize - 1;
       if (frameIdx >= start && frameIdx <= end) {
         return chunk;
