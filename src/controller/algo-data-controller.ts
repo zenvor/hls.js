@@ -459,11 +459,12 @@ class AlgoDataController implements NetworkComponentAPI {
       4,
     );
     this.ensureFixedArray(reserved, 4, '算法相机 reserved');
+    const reservedArray = (reserved as unknown[]).map((v) => Number(v) || 0);
     return {
       x: Number(x) || 0,
       y: Number(y) || 0,
       focus: Number(focus) || 0,
-      reserved: (reserved as unknown[]).map((v) => Number(v) || 0),
+      reserved: reservedArray as [number, number, number, number],
     };
   }
 
@@ -475,12 +476,13 @@ class AlgoDataController implements NetworkComponentAPI {
     );
     const box = this.parseBox(boxRaw, 'Track box');
     this.ensureFixedArray(reserved, 4, 'Track reserved');
+    const reservedArray = (reserved as unknown[]).map((v) => Number(v) || 0);
 
     return {
       trackId: Number(trackId) || 0,
       score: Number(score) || 0,
       box,
-      reserved: (reserved as unknown[]).map((v) => Number(v) || 0),
+      reserved: reservedArray as [number, number, number, number],
     };
   }
 
@@ -492,12 +494,13 @@ class AlgoDataController implements NetworkComponentAPI {
     );
     const box = this.parseBox(boxRaw, 'Det box');
     this.ensureFixedArray(reserved, 4, 'Det reserved');
+    const reservedArray = (reserved as unknown[]).map((v) => Number(v) || 0);
 
     return {
       classId: Number(classId) || 0,
       score: Number(score) || 0,
       box,
-      reserved: (reserved as unknown[]).map((v) => Number(v) || 0),
+      reserved: reservedArray as [number, number, number, number],
     };
   }
 

@@ -44,7 +44,7 @@ describe('AlgoDataController', function () {
           x: 0,
           y: 0,
           focus: 0,
-          reserved: [],
+          reserved: [0, 0, 0, 0],
         },
         tracks: [],
         detections: [],

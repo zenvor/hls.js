@@ -2,21 +2,21 @@ export type AutoCameraItem = {
   x: number;
   y: number;
   focus: number;
-  reserved?: number[];
+  reserved: [number, number, number, number];
 };
 
 export type TrackItem = {
   trackId: number;
   score: number;
   box: [number, number, number, number];
-  reserved?: number[];
+  reserved: [number, number, number, number];
 };
 
 export type DetItem = {
   classId: number;
   score: number;
   box: [number, number, number, number];
-  reserved?: number[];
+  reserved: [number, number, number, number];
 };
 
 export type FrameItem = {
