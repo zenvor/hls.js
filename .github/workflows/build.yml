@@ -171,7 +171,7 @@ jobs:
 
   cloudflare_pages:
     needs: [config, test_unit]
-    if: false  # 禁用：Fork 版本不需要部署 demo 站点
+    if: false # 禁用：Fork 版本不需要部署 demo 站点
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:cloudflare_pages:${{ github.ref }}'
@@ -334,7 +334,7 @@ jobs:
 
   test_functional_required:
     needs: [config, test_unit]
-    if: false  # 禁用：Fork 版本不需要跨浏览器测试
+    if: false # 禁用：Fork 版本不需要跨浏览器测试
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:test_functional_required:${{ matrix.config }}:${{ github.ref }}'
@@ -407,7 +407,7 @@ jobs:
 
   test_functional_optional:
     needs: [config, test_unit]
-    if: false  # 禁用：Fork 版本不需要跨浏览器测试
+    if: false # 禁用：Fork 版本不需要跨浏览器测试
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:test_functional_optional:${{ matrix.config }}:${{ github.ref }}'
