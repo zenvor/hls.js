@@ -57,16 +57,17 @@ try {
     );
   }
 
-  const foundPreviousVersion = versionParser
-    .getPotentialPreviousStableVersions(`v${newVersion}`)
-    .every((potentialPreviousVersion) =>
-      hasTag(`v${potentialPreviousVersion}`),
-    );
-  if (!foundPreviousVersion) {
-    throw new Error(
-      'Could not find a previous version. The tag must follow a previous stable version number.',
-    );
-  }
+  // Fork version: Skip strict previous version validation
+  // const foundPreviousVersion = versionParser
+  //   .getPotentialPreviousStableVersions(`v${newVersion}`)
+  //   .every((potentialPreviousVersion) =>
+  //     hasTag(`v${potentialPreviousVersion}`),
+  //   );
+  // if (!foundPreviousVersion) {
+  //   throw new Error(
+  //     'Could not find a previous version. The tag must follow a previous stable version number.',
+  //   );
+  // }
 
   console.log(newVersion);
 } catch (e) {
