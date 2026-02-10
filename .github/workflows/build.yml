@@ -283,7 +283,7 @@ jobs:
     # https://docs.npmjs.com/trusted-publishers#for-github-actions
     environment: release
     needs: [config, test_unit]
-    if: needs.config.outputs.tag || needs.config.outputs.isMainBranch == 'true'
+    if: needs.config.outputs.tag  # Fork: 只在打 tag 时发布，不发布 canary 版本
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:release_npm:${{ github.ref }}'
