@@ -1,6 +1,5 @@
 {
   "name": "@zenvor/hls.js",
-  "version": "1.6.15-fork.2",
   "license": "Apache-2.0",
   "description": "JavaScript HLS client using MediaSourceExtension (Fork with custom enhancements)",
   "homepage": "https://github.com/video-dev/hls.js",
