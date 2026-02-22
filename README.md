@@ -4,11 +4,11 @@
 > Changes have been made to the original source; this fork is **not** affiliated with
 > or endorsed by the original authors.
 
-[![npm](https://img.shields.io/npm/v/hls.js.svg?style=flat)](https://npmjs.org/package/hls.js)
-[![npm](https://img.shields.io/npm/v/hls.js/canary.svg?style=flat)](https://www.npmjs.com/package/hls.js/v/canary)
-[![](https://data.jsdelivr.com/v1/package/npm/hls.js/badge?style=rounded)](https://www.jsdelivr.com/package/npm/hls.js)
+[![npm](https://img.shields.io/npm/v/@zenvor/hls.js.svg?style=flat)](https://npmjs.org/package/@zenvor/hls.js)
+[![npm](https://img.shields.io/npm/v/@zenvor/hls.js/canary.svg?style=flat)](https://www.npmjs.com/package/@zenvor/hls.js/v/canary)
+[![](https://data.jsdelivr.com/v1/package/npm/@zenvor/hls.js/badge?style=rounded)](https://www.jsdelivr.com/package/npm/@zenvor/hls.js)
 [![Sauce Test Status](https://saucelabs.com/buildstatus/robwalch)](https://app.saucelabs.com/u/robwalch)
-[![jsDeliver](https://data.jsdelivr.com/v1/package/npm/hls.js/badge)](https://www.jsdelivr.com/package/npm/hls.js)
+[![jsDeliver](https://data.jsdelivr.com/v1/package/npm/@zenvor/hls.js/badge)](https://www.jsdelivr.com/package/npm/@zenvor/hls.js)
 
 [comment]: <> ([![Sauce Test Status]&#40;https://saucelabs.com/browser-matrix/robwalch.svg&#41;]&#40;https://saucelabs.com/u/robwalch&#41;)
 
@@ -326,13 +326,13 @@ Prepackaged builds are included [with each release](https://github.com/video-dev
 of your project:
 
 ```sh
-npm install --save hls.js
+npm install --save @zenvor/hls.js
 ```
 
 A canary channel is also available if you prefer to work off the development branch (master):
 
 ```
-npm install hls.js@canary
+npm install @zenvor/hls.js@canary
 ```
 
 ### Embedding HLS.js
@@ -341,9 +341,9 @@ Directly include dist/hls.js or dist/hls.min.js in a script tag on the page. Thi
 native browser support for HLS playback in HTMLMediaElements:
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zenvor/hls.js@1"></script>
 <!-- Or if you want the latest version from the main branch -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/hls.js@canary"></script> -->
+<!-- <script src="https://cdn.jsdelivr.net/npm/@zenvor/hls.js@canary"></script> -->
 <video id="video"></video>
 <script>
   var video = document.getElementById('video');
@@ -371,9 +371,9 @@ native browser support for HLS playback in HTMLMediaElements:
 To check for native browser support first and then fallback to HLS.js, swap these conditionals. See [this comment](https://github.com/video-dev/hls.js/pull/2954#issuecomment-670021358) to understand some of the tradeoffs.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+<script src="https://cdn.jsdelivr.net/npm/@zenvor/hls.js@1"></script>
 <!-- Or if you want the latest version from the main branch -->
-<!-- <script src="https://cdn.jsdelivr.net/npm/hls.js@canary"></script> -->
+<!-- <script src="https://cdn.jsdelivr.net/npm/@zenvor/hls.js@canary"></script> -->
 <video id="video"></video>
 <script>
   var video = document.getElementById('video');
