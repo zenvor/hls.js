@@ -15,9 +15,15 @@ if [[ $(node ./scripts/check-already-published.js) = "not published" ]]; then
       echo "canary not supported as explicit tag"
       exit 1
     fi
-    echo "Publishing tag: ${tag}"
-    npm publish --provenance --tag "${tag}"
-    curl "https://purge.jsdelivr.net/npm/@zenvor/hls.js@${tag}"
+    sanitizedTag=$(echo "${tag}" | tr -cd '[:alnum:]._-')
+    if [[ -z "${sanitizedTag}" || "${sanitizedTag}" != "${tag}" ]]; then
+      echo "Invalid publish tag: ${tag}"
+      exit 1
+    fi
+
+    echo "Publishing tag: ${sanitizedTag}"
+    npm publish --provenance --tag "${sanitizedTag}"
+    curl "https://purge.jsdelivr.net/npm/@zenvor/hls.js@${sanitizedTag}"
     echo "Published."
   fi
 else
