@@ -5,8 +5,8 @@ if [[ $(node ./scripts/check-already-published.js) = "not published" ]]; then
   if [[  -z "$TAG" ]]; then
     npm publish --provenance --tag canary
     echo "Published canary."
-    curl https://purge.jsdelivr.net/npm/hls.js@canary
-    curl https://purge.jsdelivr.net/npm/hls.js@canary/dist/hls-demo.js
+    curl https://purge.jsdelivr.net/npm/@zenvor/hls.js@canary
+    curl https://purge.jsdelivr.net/npm/@zenvor/hls.js@canary/dist/hls-demo.js
     echo "Cleared jsdelivr cache."
   else
     tag=$(node ./scripts/get-version-tag.js)
@@ -17,7 +17,7 @@ if [[ $(node ./scripts/check-already-published.js) = "not published" ]]; then
     fi
     echo "Publishing tag: ${tag}"
     npm publish --provenance --tag "${tag}"
-    curl "https://purge.jsdelivr.net/npm/hls.js@${tag}"
+    curl "https://purge.jsdelivr.net/npm/@zenvor/hls.js@${tag}"
     echo "Published."
   fi
 else
