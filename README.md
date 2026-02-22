@@ -1,6 +1,6 @@
 > **Fork Declaration**
 > This repository is a modified fork of [video-dev/hls.js](https://github.com/video-dev/hls.js),
-> originally developed by [video-dev](https://github.com/video-dev) and licensed under the [Apache-2.0 License](./LICENSE).
+> originally developed by [Dailymotion](https://www.dailymotion.com) and maintained by [video-dev](https://github.com/video-dev), licensed under the [Apache-2.0 License](./LICENSE).
 > Changes have been made to the original source; this fork is **not** affiliated with
 > or endorsed by the original authors.
 
