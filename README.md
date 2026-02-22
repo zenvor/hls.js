@@ -8,7 +8,7 @@
 [![npm](https://img.shields.io/npm/v/@zenvor/hls.js/canary.svg?style=flat)](https://www.npmjs.com/package/@zenvor/hls.js/v/canary)
 [![](https://data.jsdelivr.com/v1/package/npm/@zenvor/hls.js/badge?style=rounded)](https://www.jsdelivr.com/package/npm/@zenvor/hls.js)
 [![Sauce Test Status](https://saucelabs.com/buildstatus/robwalch)](https://app.saucelabs.com/u/robwalch)
-[![jsDeliver](https://data.jsdelivr.com/v1/package/npm/@zenvor/hls.js/badge)](https://www.jsdelivr.com/package/npm/@zenvor/hls.js)
+[![jsDelivr](https://data.jsdelivr.com/v1/package/npm/@zenvor/hls.js/badge)](https://www.jsdelivr.com/package/npm/@zenvor/hls.js)
 
 [comment]: <> ([![Sauce Test Status]&#40;https://saucelabs.com/browser-matrix/robwalch.svg&#41;]&#40;https://saucelabs.com/u/robwalch&#41;)
 
@@ -141,12 +141,12 @@ You can safely require this library in Node and **absolutely nothing will happen
 
 ## Getting started with development
 
-[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/video-dev/hls.js/tree/master?title=HLS.JS)
+[![Open in StackBlitz](https://developer.stackblitz.com/img/open_in_stackblitz.svg)](https://stackblitz.com/github/zenvor/hls.js/tree/master?title=HLS.JS)
 
 First, checkout the repository and install the required dependencies
 
 ```sh
-git clone https://github.com/video-dev/hls.js.git
+git clone https://github.com/zenvor/hls.js.git
 cd hls.js
 # After cloning or pulling from the repository, make sure all dependencies are up-to-date
 npm install ci
@@ -304,7 +304,7 @@ HLS.js is supported on:
 - Edge for Windows 10+
 - Safari 9+ for macOS 10.11+
 - Safari for iPadOS 13+
-- Safari for iOS 17.1+ since HLS version [1.5.0](https://github.com/video-dev/hls.js/releases/tag/v1.5.0) using Managed Media Source (MMS) [WebKit blog](https://webkit.org/blog/14735/webkit-features-in-safari-17-1/)
+- Safari for iOS 17.1+ since HLS version [1.5.0](https://github.com/zenvor/hls.js/releases/tag/v1.5.0) using Managed Media Source (MMS) [WebKit blog](https://webkit.org/blog/14735/webkit-features-in-safari-17-1/)
 
 A [Promise polyfill](https://github.com/taylorhakes/promise-polyfill) is required in browsers missing native promise support.
 
@@ -322,7 +322,7 @@ Find a support matrix of the MediaSource API here: https://developer.mozilla.org
 
 ### Installation
 
-Prepackaged builds are included [with each release](https://github.com/video-dev/hls.js/releases). Or install the hls.js as a dependency
+Prepackaged builds are included [with each release](https://github.com/zenvor/hls.js/releases). Or install the hls.js as a dependency
 of your project:
 
 ```sh
