@@ -1,3 +1,9 @@
+> **Fork Declaration**
+> This repository is a modified fork of [video-dev/hls.js](https://github.com/video-dev/hls.js),
+> originally developed by [video-dev](https://github.com/video-dev) and licensed under the [Apache-2.0 License](./LICENSE).
+> Changes have been made to the original source; this fork is **not** affiliated with
+> or endorsed by the original authors.
+
 [![npm](https://img.shields.io/npm/v/hls.js.svg?style=flat)](https://npmjs.org/package/hls.js)
 [![npm](https://img.shields.io/npm/v/hls.js/canary.svg?style=flat)](https://www.npmjs.com/package/hls.js/v/canary)
 [![](https://data.jsdelivr.com/v1/package/npm/hls.js/badge?style=rounded)](https://www.jsdelivr.com/package/npm/hls.js)
