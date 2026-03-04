@@ -103,7 +103,7 @@ const projection = ref(
       loop: false,
     },
     correction: {
-      mode: 'erp',
+      mode: 'cy',
       yaw: 0,
       pitch: 0,
       roll: 0,
@@ -155,7 +155,7 @@ new WideAngleRealtimeProjection({
     },
   },
   correction: {
-    mode: 'erp',
+    mode: 'cy',
     yaw: 0,
     pitch: 0,
     roll: 0,
