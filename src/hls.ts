@@ -17,6 +17,10 @@ import PlaylistLoader from './loader/playlist-loader';
 import { MetadataSchema } from './types/demuxer';
 import { type HdcpLevel, isHdcpLevel, type Level } from './types/level';
 import { PlaylistLevelType } from './types/loader';
+import {
+  findCurrentMainFragment,
+  getMainFragmentEnd,
+} from './utils/fragment-lookup';
 import { enableLogs, type ILogger } from './utils/logger';
 import { getMediaDecodingInfoPromise } from './utils/mediacapabilities-helper';
 import { getMediaSource } from './utils/mediasource-helper';
@@ -43,6 +47,7 @@ import type SubtitleTrackController from './controller/subtitle-track-controller
 import type Decrypter from './crypt/decrypter';
 import type TransmuxerInterface from './demux/transmuxer-interface';
 import type { HlsEventEmitter, HlsListeners } from './events';
+import type { MediaFragment } from './loader/fragment';
 import type FragmentLoader from './loader/fragment-loader';
 import type { LevelDetails } from './loader/level-details';
 import type M3U8Parser from './loader/m3u8-parser';
@@ -67,6 +72,27 @@ import type EwmaBandWidthEstimator from './utils/ewma-bandwidth-estimator';
 import type FetchLoader from './utils/fetch-loader';
 import type { MediaDecodingInfo } from './utils/mediacapabilities-helper';
 import type XhrLoader from './utils/xhr-loader';
+
+/**
+ * Result of {@link Hls.recoverMediaErrorBySkippingFrag}.
+ *
+ * When `ok` is `true`, the player has seeked past the broken fragment.
+ * When `ok` is `false`, `reason` describes why recovery was not possible.
+ * @public
+ */
+export interface MediaErrorRecoveryResult {
+  ok: boolean;
+  targetTime?: number;
+  fragSn?: number;
+  fragStart?: number;
+  fragEnd?: number;
+  reason?: string;
+}
+
+type MediaErrorSkipCandidate = {
+  frag: MediaFragment | null;
+  targetTime: number;
+};
 
 /**
  * The `Hls` class is the core of the HLS.js library used to instantiate player instances.
@@ -115,6 +141,12 @@ export default class Hls implements HlsEventEmitter {
   private _sessionId?: string;
   private triggeringException?: boolean;
   private started: boolean = false;
+  private mediaErrorRecoveryState: {
+    targetTime: number;
+    startLoad: boolean;
+  } | null = null;
+  private lastSkippedBrokenFragSn: number | null = null;
+  private lastSkippedBrokenFragAt: number = 0;
 
   /**
    * Get the video-dev/hls.js package version.
@@ -722,6 +754,99 @@ export default class Hls implements HlsEventEmitter {
     }
   }
 
+  /**
+   * Attempt to recover from a media decode error by skipping the current
+   * fragment. Detaches and re-attaches the media element, then seeks past
+   * the broken fragment boundary.
+   *
+   * @returns A {@link MediaErrorRecoveryResult} indicating success or failure.
+   */
+  recoverMediaErrorBySkippingFrag(): MediaErrorRecoveryResult {
+    const media = this._media;
+    if (!media) {
+      return {
+        ok: false,
+        reason: 'media is not attached',
+      };
+    }
+
+    const currentTime = media.currentTime;
+    if (!Number.isFinite(currentTime)) {
+      return {
+        ok: false,
+        reason: 'media currentTime is invalid',
+      };
+    }
+
+    const recovery = this.getBrokenFragmentSkipCandidate(currentTime);
+    if (!recovery) {
+      return {
+        ok: false,
+        reason: 'no safe fragment skip target available',
+      };
+    }
+
+    const { frag, targetTime } = recovery;
+    const fragEnd = frag ? getMainFragmentEnd(frag) : undefined;
+    const result: MediaErrorRecoveryResult = {
+      ok: true,
+      targetTime,
+      fragSn: frag?.sn,
+      fragStart: frag?.start,
+      fragEnd,
+    };
+
+    const prevSkippedSn = this.lastSkippedBrokenFragSn;
+    const prevSkippedAt = this.lastSkippedBrokenFragAt;
+
+    this.mediaErrorRecoveryState = {
+      targetTime,
+      startLoad: this.started,
+    };
+
+    if (frag?.sn != null) {
+      this.lastSkippedBrokenFragSn = frag.sn;
+      this.lastSkippedBrokenFragAt = self.performance.now();
+    }
+
+    const onMediaAttached: HlsListeners[Events.MEDIA_ATTACHED] = () => {
+      const attachedMedia = this._media;
+      const recoveryState = this.mediaErrorRecoveryState;
+      this.mediaErrorRecoveryState = null;
+
+      if (!attachedMedia || !recoveryState) {
+        return;
+      }
+
+      attachedMedia.currentTime = recoveryState.targetTime;
+      if (recoveryState.startLoad) {
+        this.startLoad(recoveryState.targetTime, true);
+      }
+    };
+
+    this.once(Events.MEDIA_ATTACHED, onMediaAttached);
+
+    try {
+      this.detachMedia();
+      this.attachMedia(media);
+    } catch (error) {
+      this.off(Events.MEDIA_ATTACHED, onMediaAttached);
+      this.mediaErrorRecoveryState = null;
+      this.lastSkippedBrokenFragSn = prevSkippedSn;
+      this.lastSkippedBrokenFragAt = prevSkippedAt;
+      return {
+        ...result,
+        ok: false,
+        reason:
+          error instanceof Error
+            ? error.message
+            : 'failed to reattach media while skipping broken fragment',
+      };
+    }
+
+    return result;
+  }
+
   removeLevel(levelIndex: number) {
     this.levelController.removeLevel(levelIndex);
   }
@@ -1069,6 +1194,47 @@ export default class Hls implements HlsEventEmitter {
   ): MediaPlaylist | null {
     return this.audioTrackController?.setAudioOption(audioOption) || null;
   }
+
+  private getBrokenFragmentSkipCandidate(
+    currentTime: number,
+  ): MediaErrorSkipCandidate | null {
+    const frag = findCurrentMainFragment(
+      this.latestLevelDetails?.fragments,
+      currentTime,
+      this.config.brokenFragmentSkipOffset,
+    );
+    const offset = this.config.brokenFragmentSkipOffset;
+    const cooldownMs = this.config.brokenFragmentSkipCooldownMs;
+    const now = self.performance.now();
+
+    if (frag?.sn != null) {
+      if (
+        this.lastSkippedBrokenFragSn === frag.sn &&
+        now - this.lastSkippedBrokenFragAt < cooldownMs
+      ) {
+        return null;
+      }
+
+      const targetTime = getMainFragmentEnd(frag) + offset;
+      if (Number.isFinite(targetTime) && targetTime > currentTime + offset) {
+        return {
+          frag,
+          targetTime,
+        };
+      }
+    }
+
+    const nextStart = this.mainForwardBufferInfo?.nextStart;
+    if (typeof nextStart === 'number' && nextStart > currentTime + offset) {
+      return {
+        frag,
+        targetTime: nextStart + offset,
+      };
+    }
+
+    return null;
+  }
+
   /**
    * Find and select the best matching subtitle track, making a level switch when a Group change is necessary.
    * Updates `hls.config.subtitlePreference`. Returns the selected track, or null when no matching track is found.

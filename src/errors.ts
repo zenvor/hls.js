@@ -102,6 +102,8 @@ export enum ErrorDetails {
   ATTACH_MEDIA_ERROR = 'attachMediaError',
   // Triggered when MediaSource enters an invalid state that requires a reset
   MEDIA_SOURCE_REQUIRES_RESET = 'mediaSourceRequiresReset',
+  // Triggered when the browser reports a media decode failure
+  MEDIA_DECODE_ERROR = 'mediaDecodeError',
   // Uncategorized error
   UNKNOWN = 'unknown',
 }

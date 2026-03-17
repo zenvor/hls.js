@@ -16,6 +16,7 @@ import {
   addEventListener,
   removeEventListener,
 } from '../utils/event-listener-helper';
+import { findCurrentMainFragment } from '../utils/fragment-lookup';
 import { Logger } from '../utils/logger';
 import {
   getMediaSource,
@@ -68,7 +69,7 @@ const VIDEO_CODEC_PROFILE_REPLACE =
   /(avc[1234]|hvc1|hev1|dvh[1e]|vp09|av01)(?:\.[^.,]+)+/;
 
 const TRACK_REMOVED_ERROR_NAME = 'HlsJsTrackRemovedError';
-
+const MEDIA_ERROR_DECODE = 3;
 class HlsJsTrackRemovedError extends Error {
   constructor(message) {
     super(message);
@@ -1645,6 +1646,37 @@ transfer tracks: ${stringify(transferredTracks, (key, value) => (key === 'initSe
     const { media } = this;
     if (media) {
       this.log(`Media error (code: ${media.error?.code}): ${media.error}`);
+      if (media.error?.code !== MEDIA_ERROR_DECODE) {
+        return;
+      }
+
+      const frag = findCurrentMainFragment(
+        this.hls.latestLevelDetails?.fragments,
+        media.currentTime,
+        this.hls.config.brokenFragmentSkipOffset,
+      );
+      const recoveryEnabled = this.hls.config.skipBrokenFragmentsOnDecodeError;
+      const recoveryResult = recoveryEnabled
+        ? this.hls.recoverMediaErrorBySkippingFrag()
+        : null;
+      const recoverySucceeded = recoveryResult?.ok === true;
+      const reasonBase = 'The browser reported a media decode error';
+      const reason = recoveryResult?.reason
+        ? `${reasonBase}: ${recoveryResult.reason}`
+        : reasonBase;
+
+      this.hls.trigger(Events.ERROR, {
+        type: ErrorTypes.MEDIA_ERROR,
+        details: ErrorDetails.MEDIA_DECODE_ERROR,
+        error: new Error(reason),
+        fatal: !recoverySucceeded,
+        reason,
+        frag: frag || undefined,
+        mediaError: media.error || undefined,
+        recoveryAttempted: recoveryEnabled,
+        recoveryAction: recoverySucceeded ? 'skip-fragment' : undefined,
+        recoveryTargetTime: recoveryResult?.targetTime,
+      });
     }
   };
 

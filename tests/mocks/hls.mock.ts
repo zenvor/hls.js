@@ -15,6 +15,7 @@ const publicMethods = [
   'stopLoad',
   'swapAudioCodec',
   'recoverMediaError',
+  'recoverMediaErrorBySkippingFrag',
 ];
 
 export default class HlsMock extends EventEmitter implements HlsEventEmitter {

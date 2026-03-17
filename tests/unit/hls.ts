@@ -198,4 +198,165 @@ describe('Hls', function () {
       hls.destroy();
     });
   });
+
+  describe('recoverMediaErrorBySkippingFrag', function () {
+    it('skips to the end of the current fragment and resumes loading after re-attach', function () {
+      const hls = new Hls();
+      const media = document.createElement('video');
+      media.currentTime = 357.1;
+      (hls as any)._media = media;
+      (hls as any).started = true;
+      (hls as any).streamController = {
+        getLevelDetails: () => ({
+          fragments: [
+            { sn: 34, start: 340, duration: 10 },
+            { sn: 35, start: 350, duration: 10, end: 360 },
+            { sn: 36, start: 360, duration: 10 },
+          ],
+        }),
+        getMainFwdBufferInfo: () => null,
+      };
+
+      const detachSpy = sinon.stub(hls, 'detachMedia');
+      const attachSpy = sinon.stub(hls, 'attachMedia');
+      const startLoadSpy = sinon.stub(hls, 'startLoad');
+
+      const result = hls.recoverMediaErrorBySkippingFrag();
+
+      expect(result).to.deep.equal({
+        ok: true,
+        targetTime: 360.001,
+        fragSn: 35,
+        fragStart: 350,
+        fragEnd: 360,
+      });
+      expect(detachSpy).to.have.been.calledOnce;
+      expect(attachSpy).to.have.been.calledOnceWith(media);
+
+      hls.trigger(Events.MEDIA_ATTACHED, { media });
+
+      expect(media.currentTime).to.equal(360.001);
+      expect(startLoadSpy).to.have.been.calledOnceWith(360.001, true);
+
+      hls.destroy();
+    });
+
+    it('falls back to the next buffered start when current time is not inside a fragment', function () {
+      const hls = new Hls();
+      const media = document.createElement('video');
+      media.currentTime = 357.1;
+      (hls as any)._media = media;
+      (hls as any).streamController = {
+        getLevelDetails: () => ({
+          fragments: [
+            { sn: 1, start: 0, duration: 10 },
+            { sn: 2, start: 10, duration: 10 },
+          ],
+        }),
+        getMainFwdBufferInfo: () => ({
+          nextStart: 370,
+        }),
+      };
+
+      sinon.stub(hls, 'detachMedia');
+      sinon.stub(hls, 'attachMedia');
+
+      const result = hls.recoverMediaErrorBySkippingFrag();
+
+      expect(result).to.deep.equal({
+        ok: true,
+        targetTime: 370.001,
+      });
+
+      hls.destroy();
+    });
+
+    it('does not retry the same fragment within the cooldown window', function () {
+      const hls = new Hls();
+      const media = document.createElement('video');
+      media.currentTime = 357.1;
+      (hls as any)._media = media;
+      (hls as any).streamController = {
+        getLevelDetails: () => ({
+          fragments: [{ sn: 35, start: 350, duration: 10, end: 360 }],
+        }),
+        getMainFwdBufferInfo: () => null,
+      };
+      (hls as any).lastSkippedBrokenFragSn = 35;
+      (hls as any).lastSkippedBrokenFragAt = 1000;
+      const nowStub = sinon.stub(self.performance, 'now').returns(1200);
+
+      const result = hls.recoverMediaErrorBySkippingFrag();
+
+      expect(result).to.deep.equal({
+        ok: false,
+        reason: 'no safe fragment skip target available',
+      });
+
+      nowStub.restore();
+      hls.destroy();
+    });
+
+    it('returns ok: false when media is not attached', function () {
+      const hls = new Hls();
+      (hls as any)._media = null;
+
+      const result = hls.recoverMediaErrorBySkippingFrag();
+
+      expect(result).to.deep.equal({
+        ok: false,
+        reason: 'media is not attached',
+      });
+
+      hls.destroy();
+    });
+
+    it('returns ok: false when media currentTime is NaN', function () {
+      const hls = new Hls();
+      const media = document.createElement('video');
+      Object.defineProperty(media, 'currentTime', {
+        configurable: true,
+        value: NaN,
+      });
+      (hls as any)._media = media;
+
+      const result = hls.recoverMediaErrorBySkippingFrag();
+
+      expect(result).to.deep.equal({
+        ok: false,
+        reason: 'media currentTime is invalid',
+      });
+
+      hls.destroy();
+    });
+
+    it('returns ok: false and resets mediaErrorRecoveryState when detachMedia throws', function () {
+      const hls = new Hls();
+      const media = document.createElement('video');
+      media.currentTime = 357.1;
+      (hls as any)._media = media;
+      (hls as any).started = true;
+      (hls as any).streamController = {
+        getLevelDetails: () => ({
+          fragments: [{ sn: 35, start: 350, duration: 10, end: 360 }],
+        }),
+        getMainFwdBufferInfo: () => null,
+      };
+
+      const errMsg = 'detach exploded';
+      const detachStub = sinon
+        .stub(hls, 'detachMedia')
+        .throws(new Error(errMsg));
+
+      const result = hls.recoverMediaErrorBySkippingFrag();
+
+      expect(result.ok).to.equal(false);
+      expect(result.reason).to.include(errMsg);
+      expect((hls as any).mediaErrorRecoveryState).to.equal(null);
+      expect((hls as any).lastSkippedBrokenFragSn).to.equal(null);
+
+      detachStub.restore();
+      hls.destroy();
+    });
+  });
 });
