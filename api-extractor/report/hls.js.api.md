@@ -1309,6 +1309,8 @@ export interface ErrorData {
     // (undocumented)
     loader?: Loader<LoaderContext>;
     // (undocumented)
+    mediaError?: MediaError;
+    // (undocumented)
     mimeType?: string;
     // (undocumented)
     networkDetails?: NullableNetworkDetails;
@@ -1318,6 +1320,12 @@ export interface ErrorData {
     part?: Part | null;
     // (undocumented)
     reason?: string;
+    // (undocumented)
+    recoveryAction?: 'skip-fragment';
+    // (undocumented)
+    recoveryAttempted?: boolean;
+    // (undocumented)
+    recoveryTargetTime?: number;
     // (undocumented)
     response?: LoaderResponse;
     // (undocumented)
@@ -1430,6 +1438,8 @@ export enum ErrorDetails {
     MANIFEST_LOAD_TIMEOUT = "manifestLoadTimeOut",
     // (undocumented)
     MANIFEST_PARSING_ERROR = "manifestParsingError",
+    // (undocumented)
+    MEDIA_DECODE_ERROR = "mediaDecodeError",
     // (undocumented)
     MEDIA_SOURCE_REQUIRES_RESET = "mediaSourceRequiresReset",
     // (undocumented)
@@ -2198,6 +2208,7 @@ class Hls implements HlsEventEmitter {
     pauseBuffering(): void;
     get playingDate(): Date | null;
     recoverMediaError(): void;
+    recoverMediaErrorBySkippingFrag(): MediaErrorRecoveryResult;
     // (undocumented)
     removeAllListeners<E extends keyof HlsListeners>(event?: E | undefined): void;
     // (undocumented)
@@ -2327,6 +2338,9 @@ export type HlsConfig = {
     preserveManualLevelOnError: boolean;
     timelineOffset?: number;
     ignorePlaylistParsingErrors: boolean;
+    skipBrokenFragmentsOnDecodeError: boolean;
+    brokenFragmentSkipCooldownMs: number;
+    brokenFragmentSkipOffset: number;
     algoDataEnabled: boolean;
     algoSegmentPattern: RegExp | string;
     algoPreloadCount: number;
@@ -4058,6 +4072,24 @@ export interface MediaDetachingData {
 export interface MediaEndedData {
     // (undocumented)
     stalled: boolean;
+}
+
+// Warning: (ae-unresolved-link) The @link reference could not be resolved: The package "@zenvor/hls.js" does not have an export "Hls"
+//
+// @public
+export interface MediaErrorRecoveryResult {
+    // (undocumented)
+    fragEnd?: number;
+    // (undocumented)
+    fragSn?: number;
+    // (undocumented)
+    fragStart?: number;
+    // (undocumented)
+    ok: boolean;
+    // (undocumented)
+    reason?: string;
+    // (undocumented)
+    targetTime?: number;
 }
 
 // Warning: (ae-missing-release-tag) "MediaFragment" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
