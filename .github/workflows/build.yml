@@ -5,6 +5,12 @@ on:
     branches: [master]
     tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to publish (e.g. v1.0.2)'
+        required: true
+        type: string
 
 permissions: {}
 
@@ -38,6 +44,9 @@ jobs:
         uses: actions/github-script@v8
         with:
           script: |
+            if (context.eventName === 'workflow_dispatch') {
+              return context.payload.inputs.tag;
+            }
             const prefix = 'refs/tags/';
             const ref = context.ref;
             return ref.startsWith(prefix) ? ref.substring(prefix.length) : '';
@@ -45,6 +54,7 @@ jobs:
 
   build:
     needs: config
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:build:${{ github.ref }}'
@@ -128,6 +138,7 @@ jobs:
 
   test_unit:
     needs: build
+    if: github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:test_unit:${{ github.ref }}'
@@ -223,7 +234,7 @@ jobs:
 
   update_draft_release:
     needs: [config, test_unit]
-    if: needs.config.outputs.tag
+    if: needs.config.outputs.tag && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:update_draft_release:${{ github.ref }}'
@@ -244,7 +255,7 @@ jobs:
 
   release_github:
     needs: [config, test_unit, update_draft_release]
-    if: needs.config.outputs.tag
+    if: needs.config.outputs.tag && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:release_github:${{ github.ref }}'
@@ -278,7 +289,7 @@ jobs:
     # https://docs.npmjs.com/trusted-publishers#for-github-actions
     environment: release
     needs: [config, test_unit]
-    if: needs.config.outputs.tag # Fork: 只在打 tag 时发布，不发布 canary 版本
+    if: needs.config.outputs.tag && (needs.test_unit.result == 'success' || needs.test_unit.result == 'skipped') # Fork: 只在打 tag 时发布，不发布 canary 版本
     runs-on: ubuntu-latest
     concurrency:
       group: 'build:release_npm:${{ github.ref }}'
