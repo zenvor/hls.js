@@ -1330,7 +1330,7 @@ export interface ErrorData {
     // (undocumented)
     reason?: string;
     // (undocumented)
-    recoveryAction?: 'skip-fragment';
+    recoveryAction?: 'skip-fragment' | 'skip-frame';
     // (undocumented)
     recoveryAttempted?: boolean;
     // (undocumented)
@@ -2358,6 +2358,7 @@ export type HlsConfig = {
     skipBrokenFragmentsOnDecodeError: boolean;
     brokenFragmentSkipCooldownMs: number;
     brokenFragmentSkipOffset: number;
+    brokenFrameSkipSize: number;
     algoDataEnabled: boolean;
     algoSegmentPattern: RegExp | string;
     algoPreloadCount: number;

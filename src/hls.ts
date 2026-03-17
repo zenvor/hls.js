@@ -145,8 +145,10 @@ export default class Hls implements HlsEventEmitter {
     targetTime: number;
     startLoad: boolean;
   } | null = null;
-  private lastSkippedBrokenFragSn: number | null = null;
+  private lastSkippedBrokenFromTime: number = -1;
+  private lastSkippedBrokenTargetTime: number = -1;
   private lastSkippedBrokenFragAt: number = 0;
+  private lastBrokenFrameSkipSize: number = 0;
 
   /**
    * Get the video-dev/hls.js package version.
@@ -798,18 +800,30 @@ export default class Hls implements HlsEventEmitter {
       }),
     };
 
-    const prevSkippedSn = this.lastSkippedBrokenFragSn;
+    const prevSkippedFromTime = this.lastSkippedBrokenFromTime;
+    const prevSkippedTargetTime = this.lastSkippedBrokenTargetTime;
     const prevSkippedAt = this.lastSkippedBrokenFragAt;
+    const prevSkipSize = this.lastBrokenFrameSkipSize;
 
     this.mediaErrorRecoveryState = {
       targetTime,
       startLoad: this.started,
     };
 
-    if (frag?.sn != null) {
-      this.lastSkippedBrokenFragSn = frag.sn;
-      this.lastSkippedBrokenFragAt = self.performance.now();
+    const isRetry = this.isBrokenSkipRetry(currentTime);
+    if (!isRetry) {
+      // 新坏帧：记录原始位置
+      this.lastSkippedBrokenFromTime = currentTime;
     }
+    // 始终更新目标、跳跃量和时间戳
+    const skipSize = targetTime - currentTime;
+    this.lastSkippedBrokenTargetTime = targetTime;
+    this.lastBrokenFrameSkipSize = skipSize;
+    this.lastSkippedBrokenFragAt = self.performance.now();
+
+    this.logger.warn(
+      `[broken-frame-skip] ${isRetry ? 'RETRY' : 'NEW'} | currentTime=${currentTime.toFixed(2)} | skipSize=${skipSize.toFixed(2)}s | targetTime=${targetTime.toFixed(2)} | originFrom=${this.lastSkippedBrokenFromTime.toFixed(2)} | prevSkipSize=${prevSkipSize.toFixed(2)}s | fragSn=${frag?.sn ?? 'N/A'}`,
+    );
 
     const onMediaAttached: HlsListeners[Events.MEDIA_ATTACHED] = () => {
       const attachedMedia = this._media;
@@ -834,8 +848,10 @@ export default class Hls implements HlsEventEmitter {
     } catch (error) {
       this.off(Events.MEDIA_ATTACHED, onMediaAttached);
       this.mediaErrorRecoveryState = null;
-      this.lastSkippedBrokenFragSn = prevSkippedSn;
+      this.lastSkippedBrokenFromTime = prevSkippedFromTime;
+      this.lastSkippedBrokenTargetTime = prevSkippedTargetTime;
       this.lastSkippedBrokenFragAt = prevSkippedAt;
+      this.lastBrokenFrameSkipSize = prevSkipSize;
       return {
         ...result,
         ok: false,
@@ -1197,6 +1213,14 @@ export default class Hls implements HlsEventEmitter {
     return this.audioTrackController?.setAudioOption(audioOption) || null;
   }
 
+  private isBrokenSkipRetry(currentTime: number): boolean {
+    return (
+      this.lastSkippedBrokenTargetTime >= 0 &&
+      Math.abs(currentTime - this.lastSkippedBrokenTargetTime) <
+        this.config.brokenFrameSkipSize * 0.5
+    );
+  }
+
   private getBrokenFragmentSkipCandidate(
     currentTime: number,
   ): MediaErrorSkipCandidate | null {
@@ -1206,18 +1230,50 @@ export default class Hls implements HlsEventEmitter {
       this.config.brokenFragmentSkipOffset,
     );
     const offset = this.config.brokenFragmentSkipOffset;
+    const frameSkipSize = this.config.brokenFrameSkipSize;
     const cooldownMs = this.config.brokenFragmentSkipCooldownMs;
     const now = self.performance.now();
 
+    // 如果上次跳过的位置和当前位置几乎相同，且仍在冷却期内，说明跳帧无效，放弃恢复
+    if (
+      Math.abs(currentTime - this.lastSkippedBrokenFromTime) < offset &&
+      now - this.lastSkippedBrokenFragAt < cooldownMs
+    ) {
+      return null;
+    }
+
     if (frag?.sn != null) {
-      if (
-        this.lastSkippedBrokenFragSn === frag.sn &&
-        now - this.lastSkippedBrokenFragAt < cooldownMs
-      ) {
-        return null;
+      let skipSize: number;
+      if (this.isBrokenSkipRetry(currentTime)) {
+        // 同一坏帧重试：翻倍上次跳跃量以越过下一个关键帧
+        skipSize = Math.max(this.lastBrokenFrameSkipSize * 2, frameSkipSize);
+      } else {
+        // 新坏帧：使用基础跳跃量
+        skipSize = frameSkipSize;
       }
 
-      const targetTime = getMainFragmentEnd(frag) + offset;
+      let targetTime = currentTime + skipSize;
+
+      // 限制 targetTime 不超过可播放边界（优先使用 seekable 范围，覆盖直播场景）
+      const media = this._media;
+      if (media) {
+        const seekable = media.seekable;
+        const seekableEnd =
+          seekable.length > 0 ? seekable.end(seekable.length - 1) : undefined;
+        if (
+          seekableEnd !== undefined &&
+          Number.isFinite(seekableEnd) &&
+          targetTime > seekableEnd
+        ) {
+          targetTime = seekableEnd;
+        } else if (
+          Number.isFinite(media.duration) &&
+          targetTime > media.duration
+        ) {
+          targetTime = media.duration;
+        }
+      }
+
       if (Number.isFinite(targetTime) && targetTime > currentTime + offset) {
         return {
           frag,

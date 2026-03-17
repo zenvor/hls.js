@@ -344,7 +344,7 @@ export interface ErrorData {
   fatal: boolean;
   mediaError?: MediaError;
   recoveryAttempted?: boolean;
-  recoveryAction?: 'skip-fragment';
+  recoveryAction?: 'skip-fragment' | 'skip-frame';
   recoveryTargetTime?: number;
   errorAction?: IErrorAction;
   buffer?: number;

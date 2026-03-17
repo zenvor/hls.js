@@ -40,6 +40,7 @@ const hlsjsDefaults = {
   algoSegmentPattern: '_dat\\.ts($|[?#])',
   algoPreloadCount: 2,
   algoCacheSize: 10,
+  skipBrokenFragmentsOnDecodeError: true,
 };
 
 const hlsjsConfigParam = getURLParam('hlsjsConfig', null);
