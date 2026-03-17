@@ -222,9 +222,10 @@ describe('Hls', function () {
 
       const result = hls.recoverMediaErrorBySkippingFrag();
 
+      // brokenFrameSkipSize 默认 1.0s，所以 targetTime = 357.1 + 1.0 = 358.1
       expect(result).to.deep.equal({
         ok: true,
-        targetTime: 360.001,
+        targetTime: 358.1,
         fragSn: 35,
         fragStart: 350,
         fragEnd: 360,
@@ -234,8 +235,8 @@ describe('Hls', function () {
 
       hls.trigger(Events.MEDIA_ATTACHED, { media });
 
-      expect(media.currentTime).to.equal(360.001);
-      expect(startLoadSpy).to.have.been.calledOnceWith(360.001, true);
+      expect(media.currentTime).to.equal(358.1);
+      expect(startLoadSpy).to.have.been.calledOnceWith(358.1, true);
 
       hls.destroy();
     });
@@ -281,7 +282,8 @@ describe('Hls', function () {
         }),
         getMainFwdBufferInfo: () => null,
       };
-      (hls as any).lastSkippedBrokenFragSn = 35;
+      // 模拟上次跳过的位置接近当前位置（差值 < brokenFragmentSkipOffset 0.001）
+      (hls as any).lastSkippedBrokenFromTime = 357.1;
       (hls as any).lastSkippedBrokenFragAt = 1000;
       const nowStub = sinon.stub(self.performance, 'now').returns(1200);
 
@@ -352,7 +354,10 @@ describe('Hls', function () {
       expect(result.ok).to.equal(false);
       expect(result.reason).to.include(errMsg);
       expect((hls as any).mediaErrorRecoveryState).to.equal(null);
-      expect((hls as any).lastSkippedBrokenFragSn).to.equal(null);
+      // 状态应被回滚到调用前的初始值
+      expect((hls as any).lastSkippedBrokenFromTime).to.equal(-1);
+      expect((hls as any).lastSkippedBrokenTargetTime).to.equal(-1);
+      expect((hls as any).lastBrokenFrameSkipSize).to.equal(0);
 
       detachStub.restore();
       hls.destroy();
