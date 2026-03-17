@@ -10,8 +10,7 @@ const HttpServer = require('http-server');
 const streams = require('../../test-streams');
 const useSauce = !!process.env.SAUCE || !!process.env.SAUCE_TUNNEL_ID;
 const HlsjsLightBuild = !!process.env.HLSJS_LIGHT;
-const chai = require('chai');
-const expect = chai.expect;
+const { expect } = require('chai');
 
 const UA = process.env.UA || 'chrome';
 const UA_VERSION = process.env.UA_VERSION || 'latest';
@@ -166,6 +165,15 @@ async function testSmoothSwitch(url, config) {
       self.hls.manualLevel = 0;
       const video = self.video;
       let playedInterval = -1;
+      self.hls.once(
+        self.Hls.Events.FRAG_LOAD_EMERGENCY_ABORTED,
+        function (eventName, data) {
+          console.log(
+            '[test] > FAIL: frag load aborted in upswitch test. Check network and rerun or ignore.'
+          );
+          callback({ code: data.details, logs: self.logString });
+        }
+      );
       self.hls.once(self.Hls.Events.FRAG_CHANGED, function (eventName, data) {
         console.log(
           '[test] > ' +
