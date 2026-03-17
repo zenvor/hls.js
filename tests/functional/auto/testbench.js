@@ -108,29 +108,65 @@ function startStream(streamUrl, config, callback, autoplay) {
             warn: console.warn.bind(console, '[warn]'),
             error: console.error.bind(console, '[error]'),
           },
+          // Increase TTFB timeout for functional test runs
+          fragLoadPolicy: {
+            default: {
+              maxTimeToFirstByteMs: 20000,
+              maxLoadTimeMs: 90000,
+              timeoutRetry: {
+                maxNumRetry: 2,
+                retryDelayMs: 0,
+                maxRetryDelayMs: 0,
+              },
+              errorRetry: {
+                maxNumRetry: 1,
+                retryDelayMs: 1000,
+                maxRetryDelayMs: 8000,
+              },
+            },
+          },
         },
         config
       )
     );
     console.log('[test] > userAgent:', navigator.userAgent);
     if (autoplay !== false) {
-      hls.on(Hls.Events.MANIFEST_PARSED, function () {
-        console.log('[test] > Manifest parsed. Calling video.play()');
+      // attempt to ready playback in case test start is treated as a user interaction
+      video.src = null;
+      video.load();
+
+      hls.on(Hls.Events.MEDIA_ATTACHED, function () {
+        console.log('[test] > Media attached. Calling video.play()');
         var playPromise = video.play();
         if (playPromise) {
-          playPromise.catch(function (error) {
-            console.log(
-              '[test] > video.play() failed with error: ' +
-                error.name +
-                ' ' +
-                error.message
-            );
-            if (error.name === 'NotAllowedError') {
-              console.log('[test] > Attempting to play with video muted');
-              video.muted = true;
-              return video.play();
-            }
-          });
+          playPromise
+            .catch(function (error) {
+              if (error.name === 'NotAllowedError') {
+                console.log('[test] > Attempting to play with video muted');
+                video.muted = true;
+                return video.play();
+              }
+              throw error;
+            })
+            .then(function () {
+              video.controls = true;
+              console.log(
+                '[test] > video.play() resolved' +
+                  (video.muted ? ' (muted)' : '') +
+                  ' currentTime: ' +
+                  video.currentTime
+              );
+            })
+            .catch(function (error) {
+              console.log(
+                '[test] > video.play()' +
+                  (video.muted ? ' (muted)' : '') +
+                  ' failed with error: ' +
+                  error.name +
+                  ' ' +
+                  error.message
+              );
+            });
         }
       });
     }
@@ -156,6 +192,24 @@ function startStream(streamUrl, config, callback, autoplay) {
     hls.attachMedia(video);
   } catch (err) {
     callback({ code: 'exception', logs: logString });
+  }
+
+  if (self === self.window) {
+    self.onerror = function (message, source, lineno, colno, error) {
+      console.error(
+        '[test] > ERROR: ' +
+          message +
+          '\n' +
+          source +
+          '\n ln:' +
+          lineno +
+          ' cn: ' +
+          colno +
+          '\n' +
+          error
+      );
+      callback({ code: 'global exception', logs: logString });
+    };
   }
 }
 

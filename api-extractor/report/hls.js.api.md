@@ -4,6 +4,8 @@
 
 ```ts
 
+import { EventEmitter } from 'eventemitter3';
+
 // Warning: (ae-missing-release-tag) "AbrComponentAPI" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -384,7 +386,7 @@ export class BaseSegment {
     set stats(value: LoadStats);
     // (undocumented)
     get url(): string;
-    set url(value: string);
+    set url(value: string | null);
 }
 
 // Warning: (ae-missing-release-tag) "BaseStreamController" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -450,11 +452,11 @@ export class BaseStreamController extends TaskLoop implements NetworkComponentAP
     // (undocumented)
     protected fragmentTracker: FragmentTracker;
     // (undocumented)
-    protected fragPlaying: Fragment | null;
+    protected fragPlaying: MediaFragment | null;
     // (undocumented)
     protected fragPrevious: MediaFragment | null;
     // (undocumented)
-    protected getAppendedFrag(position: number): Fragment | null;
+    protected getAppendedFrag(position: number): MediaFragment | null;
     protected getBufferedFrag(position: number): Fragment | null;
     // (undocumented)
     protected getBufferOutput(): Bufferable | null;
@@ -1140,10 +1142,10 @@ export const enum DecrypterAesMode {
 export type DRMSystemConfiguration = {
     licenseUrl: string;
     serverCertificateUrl?: string;
-    generateRequest?: (this: Hls, initDataType: string, initData: ArrayBuffer | null, keyContext: MediaKeySessionContext) => {
-        initDataType: string;
-        initData: ArrayBuffer | null;
-    } | undefined | never;
+    generateRequest?: (this: Hls, initDataType: string, initData: ArrayBuffer | null, keyContext: MediaKeySessionContext & {
+        decryptdata: LevelKey;
+        reason: LicenseRequestReason;
+    }) => GenerateRequestFilterResult;
 };
 
 // Warning: (ae-missing-release-tag) "DRMSystemOptions" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -1208,15 +1210,11 @@ export class EMEController extends Logger implements ComponentAPI {
     // (undocumented)
     destroy(): void;
     // (undocumented)
-    getKeyStatus(decryptdata: LevelKey): MediaKeyStatus | undefined;
+    loadClear(loadingFrag: Fragment, encryptedFragments: Fragment[], startFragRequested: boolean): Promise<void> | null;
     // (undocumented)
-    getKeySystemAccess(keySystemsToAttempt: KeySystems[]): Promise<void>;
+    loadKey(frag: EncryptedFragment): Promise<LevelKey>;
     // (undocumented)
-    getSelectedKeySystemFormats(): KeySystemFormats[];
-    // (undocumented)
-    loadKey(data: KeyLoadedData): Promise<MediaKeySessionContext>;
-    // (undocumented)
-    selectKeySystem(keySystemsToAttempt: KeySystems[]): Promise<KeySystemFormats>;
+    renewKeySession(levelKey: LevelKey, context: MediaKeySessionContext): Promise<LevelKey>;
     // (undocumented)
     selectKeySystemFormat(frag: Fragment): Promise<KeySystemFormats>;
 }
@@ -1225,14 +1223,25 @@ export class EMEController extends Logger implements ComponentAPI {
 //
 // @public (undocumented)
 export type EMEControllerConfig = {
-    licenseXhrSetup?: (this: Hls, xhr: XMLHttpRequest, url: string, keyContext: MediaKeySessionContext, licenseChallenge: Uint8Array) => void | Uint8Array | Promise<Uint8Array | void>;
-    licenseResponseCallback?: (this: Hls, xhr: XMLHttpRequest, url: string, keyContext: MediaKeySessionContext) => ArrayBuffer;
+    licenseXhrSetup?: (this: Hls, xhr: XMLHttpRequest, url: string, keyContext: MediaKeySessionContext & {
+        decryptdata: LevelKey;
+    }, licenseChallenge: Uint8Array) => void | Uint8Array | Promise<Uint8Array | void>;
+    licenseResponseCallback?: (this: Hls, xhr: XMLHttpRequest, url: string, keyContext: MediaKeySessionContext & {
+        decryptdata: LevelKey;
+    }) => ArrayBuffer;
     emeEnabled: boolean;
     widevineLicenseUrl?: string;
     drmSystems: DRMSystemsConfiguration | undefined;
     drmSystemOptions: DRMSystemOptions | undefined;
     requestMediaKeySystemAccessFunc: MediaKeyFunc | null;
     requireKeySystemAccessOnStart: boolean;
+};
+
+// Warning: (ae-missing-release-tag) "EncryptedFragment" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type EncryptedFragment = Fragment & {
+    decryptdata: LevelKey;
 };
 
 // Warning: (ae-missing-release-tag) "ErrorActionFlags" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2071,6 +2080,14 @@ export type GapControllerConfig = {
     nudgeOnVideoHole: boolean;
     skipBufferHolePadding: number;
 };
+
+// Warning: (ae-missing-release-tag) "GenerateRequestFilterResult" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type GenerateRequestFilterResult = {
+    initDataType: string;
+    initData: ArrayBuffer | null;
+} | undefined | never;
 
 // Warning: (ae-missing-release-tag) "HdcpLevel" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -3086,28 +3103,13 @@ export class KeyLoader extends Logger implements ComponentAPI {
     // (undocumented)
     abort(type?: PlaylistLevelType): void;
     // (undocumented)
-    createKeyLoadError(frag: Fragment, details: ErrorDetails | undefined, error: Error, networkDetails?: NullableNetworkDetails, response?: {
-        url: string;
-        data: undefined;
-        code: number;
-        text: string;
-    }): LoadError;
-    // (undocumented)
     destroy(): void;
-    // (undocumented)
-    detach(): void;
     // (undocumented)
     emeController: EMEController | null;
     // (undocumented)
     load(frag: Fragment): Promise<KeyLoadedData>;
     // (undocumented)
-    loadClear(loadingFrag: Fragment, encryptedFragments: Fragment[], startFragRequested: boolean): null | Promise<void>;
-    // (undocumented)
-    loadInternal(frag: Fragment, keySystemFormat?: KeySystemFormats): Promise<KeyLoadedData>;
-    // (undocumented)
-    loadKeyEME(keyInfo: KeyLoaderInfo, frag: Fragment): Promise<KeyLoadedData>;
-    // (undocumented)
-    loadKeyHTTP(keyInfo: KeyLoaderInfo, frag: Fragment): Promise<KeyLoadedData>;
+    loadClear(loadingFrag: Fragment, encryptedFragments: Fragment[], startFragRequested: boolean): Promise<void> | null;
 }
 
 // Warning: (ae-missing-release-tag) "KeyLoaderContext" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -3127,11 +3129,9 @@ export interface KeyLoaderInfo {
     // (undocumented)
     decryptdata: LevelKey;
     // (undocumented)
-    keyLoadPromise: Promise<KeyLoadedData> | null;
+    keyLoadPromise?: Promise<KeyLoadedData> | null;
     // (undocumented)
-    loader: Loader<KeyLoaderContext> | null;
-    // (undocumented)
-    mediaKeySessionContext: MediaKeySessionContext | null;
+    loader?: Loader<KeyLoaderContext> | null;
 }
 
 // Warning: (ae-missing-release-tag) "KeyLoadingData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -3141,6 +3141,20 @@ export interface KeyLoadingData {
     // (undocumented)
     frag: Fragment;
 }
+
+// Warning: (ae-missing-release-tag) "KeyRequests" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type KeyRequests = {
+    [uri: string]: LicenseAndKeysRequest | undefined;
+};
+
+// Warning: (ae-missing-release-tag) "KeyStatuses" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type KeyStatuses = {
+    [keyId: string]: MediaKeyStatus;
+};
 
 // Warning: (ae-missing-release-tag) "KeySystemFormats" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -3169,6 +3183,13 @@ export const enum KeySystems {
     // (undocumented)
     WIDEVINE = "com.widevine.alpha"
 }
+
+// Warning: (ae-missing-release-tag) "KeyTimeouts" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type KeyTimeouts = {
+    [keyId: string]: number;
+};
 
 // Warning: (ae-missing-release-tag) "LatencyControllerConfig" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -3479,6 +3500,8 @@ export class LevelKey implements DecryptData {
     // (undocumented)
     pssh: Uint8Array<ArrayBuffer> | null;
     // (undocumented)
+    scheme?: string;
+    // (undocumented)
     static setKeyIdForUri(uri: string, keyId: Uint8Array<ArrayBuffer>): void;
     // (undocumented)
     readonly uri: string;
@@ -3652,6 +3675,25 @@ export interface LevelUpdatedData {
     // (undocumented)
     level: number;
 }
+
+// Warning: (ae-missing-release-tag) "LicenseAndKeysRequest" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type LicenseAndKeysRequest = EventEmitter & {
+    status: 'initialized' | 'started' | 'generated' | MediaKeyMessageType;
+    licenseXhr?: XMLHttpRequest;
+    requestErrors: {
+        status: number;
+        message: string;
+    }[];
+    onmessage?: (this: MediaKeySession, ev: MediaKeyMessageEvent) => any;
+    onkeystatuseschange?: (this: MediaKeySession, ev: Event) => any;
+};
+
+// Warning: (ae-missing-release-tag) "LicenseRequestReason" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type LicenseRequestReason = 'playlist-key' | 'encrypted-event-key-match' | 'encrypted-event-no-match' | 'expired';
 
 // Warning: (ae-missing-release-tag) "LiveBackBufferData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -4110,28 +4152,19 @@ export type MediaKeyFunc = (keySystem: KeySystems, supportedConfigurations: Medi
 // Warning: (ae-missing-release-tag) "MediaKeySessionContext" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
-export interface MediaKeySessionContext {
-    // (undocumented)
-    decryptdata: LevelKey;
-    // (undocumented)
-    keyStatus?: MediaKeyStatus;
-    // (undocumented)
-    keyStatusTimeouts?: {
-        [keyId: string]: number;
-    };
-    // (undocumented)
+export type MediaKeySessionContext = {
     keySystem: KeySystems;
-    // (undocumented)
-    licenseXhr?: XMLHttpRequest;
-    // (undocumented)
     mediaKeys: MediaKeys;
-    // (undocumented)
     mediaKeysSession: MediaKeySession;
-    // (undocumented)
-    _onkeystatuseschange?: (this: MediaKeySession, ev: Event) => any;
-    // (undocumented)
-    _onmessage?: (this: MediaKeySession, ev: MediaKeyMessageEvent) => any;
-}
+    keyRequests: KeyRequests;
+    keyStatuses: KeyStatuses;
+    keyStatusTimeouts?: KeyTimeouts;
+    createdFor: {
+        levelKey: LevelKey;
+        reason: LicenseRequestReason;
+    };
+    initialized: boolean;
+};
 
 // Warning: (ae-missing-release-tag) "MediaOverrides" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //

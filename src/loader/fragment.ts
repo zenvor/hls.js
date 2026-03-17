@@ -122,7 +122,7 @@ export class BaseSegment {
   }
 
   get url(): string {
-    if (!this._url && this.baseurl && this.relurl) {
+    if (!this._url && this.relurl) {
       this._url = buildAbsoluteURL(this.baseurl, this.relurl, {
         alwaysNormalize: true,
       });
@@ -130,7 +130,7 @@ export class BaseSegment {
     return this._url || '';
   }
 
-  set url(value: string) {
+  set url(value: string | null) {
     this._url = value;
   }
 
@@ -139,9 +139,13 @@ export class BaseSegment {
     elementaryStreams[ElementaryStreamTypes.AUDIO] = null;
     elementaryStreams[ElementaryStreamTypes.VIDEO] = null;
     elementaryStreams[ElementaryStreamTypes.AUDIOVIDEO] = null;
+    this.url = null;
   }
 }
 
+export type EncryptedFragment = Fragment & {
+  decryptdata: LevelKey;
+};
 export interface MediaFragment extends Fragment {
   sn: number;
   ref: MediaFragmentRef;
@@ -157,6 +161,24 @@ export type MediaFragmentRef = {
 
 export function isMediaFragment(frag: Fragment): frag is MediaFragment {
   return frag.sn !== 'initSegment';
+}
+
+export function mediaFragmentsAreEqual(
+  frag: Fragment,
+  mediaFragment: MediaFragment | null | undefined,
+): boolean {
+  return frag.sn === mediaFragment?.sn && frag.level === mediaFragment.level;
+}
+
+export function fragmentsAreEqual(
+  frag: Fragment,
+  otherFrag: Fragment | null | undefined,
+): boolean {
+  return (
+    frag.sn === otherFrag?.sn &&
+    frag.level === otherFrag.level &&
+    frag.cc === otherFrag.cc // Both `sn` may equal "initSegment" in different disconituities (`cc`)
+  );
 }
 
 /**

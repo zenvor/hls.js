@@ -1,5 +1,5 @@
 /* eslint-disable dot-notation */
-import chai from 'chai';
+import { expect, use } from 'chai';
 import { fakeXhr } from 'nise';
 import sinon from 'sinon';
 import sinonChai from 'sinon-chai';
@@ -22,8 +22,7 @@ import type { MediaFragment } from '../../../src/loader/fragment';
 import type { ParsedMultivariantPlaylist } from '../../../src/loader/m3u8-parser';
 import type { LevelAttributes } from '../../../src/types/level';
 
-chai.use(sinonChai);
-const expect = chai.expect;
+use(sinonChai);
 
 describe('StreamController', function () {
   let fake;
@@ -716,7 +715,10 @@ describe('StreamController', function () {
 
     it('should trigger FRAG_CHANGED event when fragment changes', function () {
       const triggerSpy = sinon.spy(hls, 'trigger');
-      const oldFrag = new Fragment(PlaylistLevelType.MAIN, 'old.ts');
+      const oldFrag = new Fragment(
+        PlaylistLevelType.MAIN,
+        'old.ts',
+      ) as MediaFragment;
       oldFrag.sn = 0;
       oldFrag.level = 0;
       streamController['fragPlaying'] = oldFrag;
@@ -738,7 +740,10 @@ describe('StreamController', function () {
 
     it('should trigger LEVEL_SWITCHED event when level changes', function () {
       const triggerSpy = sinon.spy(hls, 'trigger');
-      const oldFrag = new Fragment(PlaylistLevelType.MAIN, 'old.ts');
+      const oldFrag = new Fragment(
+        PlaylistLevelType.MAIN,
+        'old.ts',
+      ) as MediaFragment;
       oldFrag.sn = 0;
       oldFrag.level = 1;
 
@@ -759,7 +764,7 @@ describe('StreamController', function () {
     });
 
     it('should return false when fragment has not changed', function () {
-      streamController['fragPlaying'] = mockFrag;
+      streamController['fragPlaying'] = mockFrag as MediaFragment;
 
       const result = streamController['checkFragmentChanged']();
 
