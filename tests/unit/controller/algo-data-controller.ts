@@ -1,4 +1,4 @@
-import chai from 'chai';
+import { expect } from 'chai';
 import { hlsDefaultConfig } from '../../../src/config';
 import AlgoDataController from '../../../src/controller/algo-data-controller';
 import { Fragment } from '../../../src/loader/fragment';
@@ -6,8 +6,6 @@ import { LevelDetails } from '../../../src/loader/level-details';
 import { PlaylistLevelType } from '../../../src/types/loader';
 import type { MediaFragment } from '../../../src/loader/fragment';
 import type { AlgoChunk, FrameItem } from '../../../src/types/algo';
-
-const expect = chai.expect;
 
 describe('AlgoDataController', function () {
   describe('getFrameByTime', function () {
