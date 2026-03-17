@@ -59,6 +59,7 @@ type BufferControllerTestable = Omit<
   tracks: SourceBufferTrackSet;
   tracksReady: boolean;
   _onMediaSourceClose: () => void;
+  _onMediaError: () => void;
 };
 
 describe('BufferController', function () {
@@ -585,6 +586,118 @@ describe('BufferController', function () {
       bufferController.mediaSource = mediaSource;
       bufferController._onMediaSourceClose();
       expect(triggerSpy).to.not.have.been.calledWith(Events.ERROR);
+    });
+  });
+
+  describe('media decode errors', function () {
+    beforeEach(function () {
+      bufferController.media =
+        new MockMediaElement() as unknown as HTMLMediaElement;
+      bufferController.media.currentTime = 357.1;
+      (hls as any).streamController = {
+        getLevelDetails: () => ({
+          fragments: [{ sn: 35, start: 350, duration: 10, end: 360 }],
+        }),
+        getMainFwdBufferInfo: () => null,
+      };
+    });
+
+    it('emits recoverable MEDIA_DECODE_ERROR when broken fragment skip succeeds', function () {
+      hls.config.skipBrokenFragmentsOnDecodeError = true;
+      Object.defineProperty(bufferController.media as object, 'error', {
+        configurable: true,
+        value: { code: 3 },
+      });
+      const recoverStub = sandbox
+        .stub(hls, 'recoverMediaErrorBySkippingFrag')
+        .returns({
+          ok: true,
+          targetTime: 360.001,
+          fragSn: 35,
+          fragStart: 350,
+          fragEnd: 360,
+        } as any);
+      const triggerSpy = sandbox.spy(hls, 'trigger');
+
+      bufferController._onMediaError();
+
+      expect(recoverStub).to.have.been.calledOnce;
+      expect(triggerSpy).to.have.been.calledWith(
+        Events.ERROR,
+        sinon.match({
+          type: ErrorTypes.MEDIA_ERROR,
+          details: ErrorDetails.MEDIA_DECODE_ERROR,
+          fatal: false,
+          recoveryAttempted: true,
+          recoveryAction: 'skip-fragment',
+          recoveryTargetTime: 360.001,
+          frag: sinon.match({
+            sn: 35,
+            start: 350,
+          }),
+        }),
+      );
+      expect(triggerSpy).to.have.been.calledWith(
+        Events.ERROR,
+        sinon.match({
+          mediaError: sinon.match({ code: 3 }),
+        }),
+      );
+    });
+
+    it('emits fatal MEDIA_DECODE_ERROR when no safe skip target exists', function () {
+      hls.config.skipBrokenFragmentsOnDecodeError = true;
+      Object.defineProperty(bufferController.media as object, 'error', {
+        configurable: true,
+        value: { code: 3 },
+      });
+      sandbox.stub(hls, 'recoverMediaErrorBySkippingFrag').returns({
+        ok: false,
+        reason: 'no safe fragment skip target available',
+      } as any);
+      const triggerSpy = sandbox.spy(hls, 'trigger');
+
+      bufferController._onMediaError();
+
+      expect(triggerSpy).to.have.been.calledWith(
+        Events.ERROR,
+        sinon
+          .match({
+            type: ErrorTypes.MEDIA_ERROR,
+            details: ErrorDetails.MEDIA_DECODE_ERROR,
+            fatal: true,
+            recoveryAttempted: true,
+          })
+          .and(
+            sinon.match.has(
+              'reason',
+              sinon.match('no safe fragment skip target available'),
+            ),
+          ),
+      );
+    });
+
+    it('emits fatal error without calling recoverMediaErrorBySkippingFrag when skipBrokenFragmentsOnDecodeError is false', function () {
+      hls.config.skipBrokenFragmentsOnDecodeError = false;
+      Object.defineProperty(bufferController.media as object, 'error', {
+        configurable: true,
+        value: { code: 3 },
+      });
+      const recoverStub = sandbox.stub(hls, 'recoverMediaErrorBySkippingFrag');
+      const triggerSpy = sandbox.spy(hls, 'trigger');
+
+      bufferController._onMediaError();
+
+      expect(recoverStub).to.not.have.been.called;
+      expect(triggerSpy).to.have.been.calledWith(
+        Events.ERROR,
+        sinon.match({
+          type: ErrorTypes.MEDIA_ERROR,
+          details: ErrorDetails.MEDIA_DECODE_ERROR,
+          fatal: true,
+          recoveryAttempted: false,
+        }),
+      );
     });
   });
 });

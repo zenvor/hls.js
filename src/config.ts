@@ -297,6 +297,9 @@ export type HlsConfig = {
   preserveManualLevelOnError: boolean;
   timelineOffset?: number;
   ignorePlaylistParsingErrors: boolean;
+  skipBrokenFragmentsOnDecodeError: boolean;
+  brokenFragmentSkipCooldownMs: number;
+  brokenFragmentSkipOffset: number;
   algoDataEnabled: boolean;
   algoSegmentPattern: RegExp | string;
   algoPreloadCount: number;
@@ -427,6 +430,9 @@ export const hlsDefaultConfig: HlsConfig = {
   appendErrorMaxRetry: 3, // used by buffer-controller
   appendTimeout: Infinity, // used by buffer-controller
   ignorePlaylistParsingErrors: false,
+  skipBrokenFragmentsOnDecodeError: false,
+  brokenFragmentSkipCooldownMs: 3000,
+  brokenFragmentSkipOffset: 0.001,
   algoDataEnabled: false,
   // 中文注释：算法分片统一包含 _dat.ts（查询参数已在解析阶段剔除）
   algoSegmentPattern: /_dat\.ts$/i,

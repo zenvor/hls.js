@@ -41,4 +41,14 @@ describe('Config Validation', function () {
       hls.destroy();
     });
   });
+
+  describe('broken fragment skip config', function () {
+    it('uses disabled auto skip defaults unless configured', function () {
+      const hls = new Hls({});
+      expect(hls.config.skipBrokenFragmentsOnDecodeError).to.equal(false);
+      expect(hls.config.brokenFragmentSkipCooldownMs).to.equal(3000);
+      expect(hls.config.brokenFragmentSkipOffset).to.equal(0.001);
+      hls.destroy();
+    });
+  });
 });
