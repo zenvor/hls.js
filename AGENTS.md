@@ -23,6 +23,8 @@ Follow `.editorconfig`: 2-space indentation, LF, trim trailing whitespace. Prett
 
 Unit tests run via Karma (`npm run test:unit`, watch mode: `npm run test:unit:watch`). Functional tests run via Mocha (`npm run test:func`, light build: `npm run test:func:light`). Add tests alongside related files in `tests/unit/` or `tests/functional/` and cover new parsing, loading, or playback logic.
 
+**NEVER run unit tests or any test commands locally on this machine unless the user explicitly says to do so. Running tests causes the machine to overheat and freeze.**
+
 ## Commit & Pull Request Guidelines
 
 Recent history mixes Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`) with descriptive sentence-style messages and optional scopes (e.g., `fix(remux): ...`). Prefer `type: summary` with an optional scope and include PR/issue numbers when relevant, such as `(#1234)`. Use a topic branch (not `master`), run `npm run prettier` before staging, and ensure `npm run sanity-check` plus `npm run test:func` pass before opening a PR. Keep PRs focused and describe the playback impact and test coverage.
