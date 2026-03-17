@@ -791,9 +791,11 @@ export default class Hls implements HlsEventEmitter {
     const result: MediaErrorRecoveryResult = {
       ok: true,
       targetTime,
-      fragSn: frag?.sn,
-      fragStart: frag?.start,
-      fragEnd,
+      ...(frag != null && {
+        fragSn: frag.sn,
+        fragStart: frag.start,
+        fragEnd,
+      }),
     };
 
     const prevSkippedSn = this.lastSkippedBrokenFragSn;
