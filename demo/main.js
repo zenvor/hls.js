@@ -83,6 +83,15 @@ let configEditor = null;
 let chart;
 let resizeAsyncCallbackId = -1;
 const algoChunkKeys = new Set();
+const AUDIO_BOOST_MIN_PERCENT = 100;
+const AUDIO_BOOST_MAX_PERCENT = 1000;
+const AUDIO_BOOST_DEFAULT_PERCENT = 100;
+
+let audioBoostPercent = AUDIO_BOOST_DEFAULT_PERCENT;
+let audioBoostContext = null;
+let audioBoostGainNode = null;
+let audioBoostCompressorNode = null;
+let audioBoostSourceNode = null;
 
 const requestAnimationFrame = self.requestAnimationFrame || self.setTimeout;
 const cancelAnimationFrame = self.cancelAnimationFrame || self.clearTimeout;
@@ -186,6 +195,112 @@ const playerResize = () => {
   }
 };
 resizeHandlers.push(playerResize);
+
+const getAudioContextCtor = () => {
+  return self.AudioContext || self.webkitAudioContext || null;
+};
+
+const isAudioBoostSupported = () => {
+  return !!getAudioContextCtor();
+};
+
+const clampAudioBoostPercent = (value) => {
+  const numericValue = Number(value);
+  if (!Number.isFinite(numericValue)) {
+    return AUDIO_BOOST_DEFAULT_PERCENT;
+  }
+  return Math.max(
+    AUDIO_BOOST_MIN_PERCENT,
+    Math.min(AUDIO_BOOST_MAX_PERCENT, numericValue)
+  );
+};
+
+const updateAudioBoostUI = () => {
+  const label = document.querySelector('#audioBoostValue');
+  const slider = document.querySelector('#audioBoostRange');
+  if (slider) {
+    slider.value = String(audioBoostPercent);
+  }
+  if (label) {
+    label.textContent = `${audioBoostPercent}% / ${AUDIO_BOOST_MAX_PERCENT}%`;
+  }
+};
+
+const applyAudioBoostGain = () => {
+  if (!audioBoostGainNode) return;
+  audioBoostGainNode.gain.value = audioBoostPercent / 100;
+};
+
+const ensureAudioBoostGraph = () => {
+  const AudioContextCtor = getAudioContextCtor();
+  if (!AudioContextCtor) {
+    return false;
+  }
+
+  if (!audioBoostContext) {
+    audioBoostContext = new AudioContextCtor();
+  }
+
+  if (!audioBoostGainNode) {
+    audioBoostGainNode = audioBoostContext.createGain();
+  }
+
+  if (!audioBoostCompressorNode) {
+    audioBoostCompressorNode = audioBoostContext.createDynamicsCompressor();
+    audioBoostCompressorNode.threshold.value = -14;
+    audioBoostCompressorNode.knee.value = 18;
+    audioBoostCompressorNode.ratio.value = 4;
+    audioBoostCompressorNode.release.value = 0.2;
+    audioBoostGainNode.connect(audioBoostCompressorNode);
+    audioBoostCompressorNode.connect(audioBoostContext.destination);
+  }
+
+  applyAudioBoostGain();
+  return true;
+};
+
+const attachAudioBoostToVideo = () => {
+  if (!ensureAudioBoostGraph()) {
+    return false;
+  }
+
+  if (audioBoostSourceNode) {
+    return true;
+  }
+
+  try {
+    audioBoostSourceNode = audioBoostContext.createMediaElementSource(video);
+    audioBoostSourceNode.connect(audioBoostGainNode);
+    return true;
+  } catch (error) {
+    console.warn('Failed to attach audio boost source:', error);
+    return false;
+  }
+};
+
+const resumeAudioBoostContext = () => {
+  if (!audioBoostContext || audioBoostContext.state !== 'suspended') {
+    return;
+  }
+  audioBoostContext.resume().catch(() => {});
+};
+
+const setAudioBoostPercent = (value) => {
+  audioBoostPercent = clampAudioBoostPercent(value);
+  applyAudioBoostGain();
+  updateAudioBoostUI();
+};
+
+const tryActivateAudioBoost = () => {
+  if (!isAudioBoostSupported()) {
+    return false;
+  }
+  if (!attachAudioBoostToVideo()) {
+    return false;
+  }
+  resumeAudioBoostContext();
+  return true;
+};
 
 $(document).ready(function () {
   setupConfigEditor();
@@ -303,14 +418,43 @@ $(document).ready(function () {
 
   $('#streamURL').val(sourceURL);
 
-  const volumeSettings = JSON.parse(
-    localStorage.getItem(STORAGE_KEYS.volume)
-  ) || {
-    volume: 0.05,
-    muted: false,
-  };
-  video.volume = volumeSettings.volume;
+  let volumeSettings;
+  try {
+    volumeSettings = JSON.parse(localStorage.getItem(STORAGE_KEYS.volume));
+  } catch (e) {
+    volumeSettings = null;
+  }
+
+  if (
+    !volumeSettings ||
+    typeof volumeSettings.volume !== 'number' ||
+    typeof volumeSettings.muted !== 'boolean'
+  ) {
+    volumeSettings = {
+      volume: 1,
+      muted: false,
+    };
+  }
+
+  video.volume = Math.max(0, Math.min(1, volumeSettings.volume));
   video.muted = volumeSettings.muted;
+
+  const audioBoostSlider = document.querySelector('#audioBoostRange');
+  if (audioBoostSlider) {
+    if (!isAudioBoostSupported()) {
+      audioBoostSlider.disabled = true;
+      const label = document.querySelector('#audioBoostValue');
+      if (label) {
+        label.textContent = 'N/A';
+      }
+    } else {
+      const handleAudioBoostSliderInput = () => {
+        setAudioBoostPercent(audioBoostSlider.value);
+        tryActivateAudioBoost();
+      };
+      audioBoostSlider.addEventListener('input', handleAudioBoostSliderInput);
+    }
+  }
 
   $('.btn-dump').toggle(dumpfMP4);
   $('#toggleButtons').show();
@@ -1186,6 +1330,7 @@ function handleVideoEvent(evt) {
     case 'seeked':
     case 'play':
     case 'playing':
+      tryActivateAudioBoost();
       lastStartPosition = evt.target.currentTime;
     case 'pause':
     case 'waiting':
