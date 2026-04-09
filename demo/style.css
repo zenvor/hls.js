@@ -199,16 +199,68 @@ select option {
 
 #algoDataOut {
   height: auto;
-  max-height: 260px;
+  max-height: 360px;
   overflow: auto;
-  font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
-  font-size: 12px;
-  line-height: 1.4;
   background: #111;
   color: #e5e5e5;
   padding: 8px;
   border: 1px solid #333;
   border-radius: 4px;
+  text-align: left;
+}
+
+.algo-chunk-panel {
+  background: #171717;
+  border: 1px solid #2f2f2f;
+  border-radius: 4px;
+  padding: 10px 12px;
+}
+
+.algo-chunk-panel + .algo-chunk-panel {
+  margin-top: 8px;
+}
+
+.algo-chunk-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.algo-chunk-summary {
+  font-family: 'Menlo', 'Monaco', 'Consolas', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.4;
+  flex: 1 1 360px;
+}
+
+.algo-chunk-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.algo-chunk-download-btn {
+  border: 1px solid #5a9bd5;
+  background: #18304a;
+  color: #d9ecff;
+  border-radius: 4px;
+  padding: 6px 10px;
+  font-size: 12px;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.algo-chunk-download-btn:hover {
+  background: #21466c;
+}
+
+.algo-chunk-download-btn:focus-visible {
+  outline: 2px solid #8ec8ff;
+  outline-offset: 2px;
 }
 
 #streamURL,

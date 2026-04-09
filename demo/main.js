@@ -178,6 +178,134 @@ const extractAlgoRoot = (items) => {
   return null;
 };
 
+const normalizeAlgoNumber = (value, digits) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return 0;
+  }
+  if (typeof digits === 'number') {
+    return Number(numeric.toFixed(digits));
+  }
+  return numeric;
+};
+
+const formatAlgoBox = (box) => {
+  if (!Array.isArray(box)) {
+    return [0, 0, 0, 0];
+  }
+  return box.slice(0, 4).map((value) => normalizeAlgoNumber(value, 3));
+};
+
+const formatAlgoReserved = (reserved) => {
+  if (!Array.isArray(reserved)) {
+    return [0, 0, 0, 0];
+  }
+  return reserved.slice(0, 4).map((value) => normalizeAlgoNumber(value, 3));
+};
+
+const formatAlgoChunkForDisplay = (chunk) => {
+  if (!chunk || !Array.isArray(chunk.frames)) {
+    return null;
+  }
+
+  return {
+    fragSn: normalizeAlgoNumber(chunk.fragSn),
+    chunkIndex: normalizeAlgoNumber(chunk.chunkIndex),
+    algoUrl: chunk.algoUrl || '',
+    frameSize: normalizeAlgoNumber(chunk.frameSize),
+    frameRate: normalizeAlgoNumber(chunk.frameRate, 3),
+    startFrameIndex: normalizeAlgoNumber(chunk.startFrameIndex),
+    frames: chunk.frames.map((frame) => ({
+      frameIdx: normalizeAlgoNumber(frame && frame.frameIdx),
+      autoCameras: {
+        x: normalizeAlgoNumber(
+          frame && frame.autoCameras && frame.autoCameras.x,
+          3
+        ),
+        y: normalizeAlgoNumber(
+          frame && frame.autoCameras && frame.autoCameras.y,
+          3
+        ),
+        focus: normalizeAlgoNumber(
+          frame && frame.autoCameras && frame.autoCameras.focus,
+          3
+        ),
+        reserved: formatAlgoReserved(
+          frame && frame.autoCameras && frame.autoCameras.reserved
+        ),
+      },
+      tracks: Array.isArray(frame && frame.tracks)
+        ? frame.tracks.map((track) => ({
+            trackId: normalizeAlgoNumber(track && track.trackId),
+            score: normalizeAlgoNumber(track && track.score, 6),
+            box: formatAlgoBox(track && track.box),
+            reserved: formatAlgoReserved(track && track.reserved),
+          }))
+        : [],
+      detections: Array.isArray(frame && frame.detections)
+        ? frame.detections.map((det) => ({
+            classId: normalizeAlgoNumber(det && det.classId),
+            score: normalizeAlgoNumber(det && det.score, 6),
+            box: formatAlgoBox(det && det.box),
+            reserved: formatAlgoReserved(det && det.reserved),
+          }))
+        : [],
+    })),
+  };
+};
+
+const getAlgoChunkFrameEnd = (chunk) => {
+  const frameCount = Array.isArray(chunk && chunk.frames)
+    ? chunk.frames.length
+    : 0;
+  return (
+    normalizeAlgoNumber(chunk && chunk.startFrameIndex) +
+    Math.max(0, frameCount - 1)
+  );
+};
+
+const buildAlgoChunkSummary = (chunk) => {
+  const chunkIndex = normalizeAlgoNumber(chunk && chunk.chunkIndex);
+  const fragSn = normalizeAlgoNumber(chunk && chunk.fragSn);
+  const frameRate = normalizeAlgoNumber(chunk && chunk.frameRate, 3);
+  const frameSize = normalizeAlgoNumber(chunk && chunk.frameSize);
+  const startFrameIndex = normalizeAlgoNumber(chunk && chunk.startFrameIndex);
+  const frameEnd = getAlgoChunkFrameEnd(chunk);
+  return (
+    `分片 ${chunkIndex} | fragSn ${fragSn} | ` +
+    `帧 ${startFrameIndex}-${frameEnd} | ` +
+    `frameRate ${frameRate} | frameSize ${frameSize}`
+  );
+};
+
+const buildAlgoChunkFileName = (chunk) => {
+  const chunkIndex = normalizeAlgoNumber(chunk && chunk.chunkIndex);
+  const fragSn = normalizeAlgoNumber(chunk && chunk.fragSn);
+  const startFrameIndex = normalizeAlgoNumber(chunk && chunk.startFrameIndex);
+  const frameEnd = getAlgoChunkFrameEnd(chunk);
+  return `algo-chunk-${chunkIndex}-frag-${fragSn}-frames-${startFrameIndex}-${frameEnd}.json`;
+};
+
+const downloadAlgoChunkJson = (chunk) => {
+  const displayChunk = formatAlgoChunkForDisplay(chunk);
+  if (!displayChunk) {
+    return;
+  }
+
+  const json = JSON.stringify(displayChunk, null, 2);
+  const blob = new Blob([json], { type: 'application/json;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = objectUrl;
+  link.download = buildAlgoChunkFileName(displayChunk);
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  self.setTimeout(() => {
+    URL.revokeObjectURL(objectUrl);
+  }, 0);
+};
+
 self.onresize = resize;
 if (self.screen && self.screen.orientation) {
   self.screen.orientation.onchange = resize;
@@ -947,17 +1075,7 @@ function loadSelectedStream() {
       return;
     }
     algoChunkKeys.add(chunkKey);
-
-    const lines = chunk.frames.map((frame) => {
-      const camera = frame.autoCameras || {};
-      const x = Number.isFinite(camera.x) ? Math.round(camera.x) : 0;
-      const y = Number.isFinite(camera.y) ? Math.round(camera.y) : 0;
-      const focus = Number.isFinite(camera.focus)
-        ? Math.round(camera.focus)
-        : 0;
-      return `${frame.frameIdx},${x},${y},${focus}`;
-    });
-    appendAlgoDataLines(lines);
+    appendAlgoChunkPanel(chunk);
   });
 
   hls.on(Hls.Events.ALGO_DATA_LOADING, function (_eventName, data) {
@@ -2203,21 +2321,46 @@ function appendLog(textElId, message) {
 
 function resetAlgoDataOutput() {
   algoChunkKeys.clear();
-  $('#algoDataOut').text('');
+  $('#algoDataOut').empty();
 }
 
-function appendAlgoDataLines(lines) {
-  if (!lines || !lines.length) {
+function appendAlgoChunkPanel(chunk) {
+  if (!chunk || !Array.isArray(chunk.frames)) {
     return;
   }
-  const el = $('#algoDataOut');
-  const current = el.text();
-  const nextText = current
-    ? `${current}\n${lines.join('\n')}`
-    : lines.join('\n');
-  el.text(nextText);
-  const element = el[0];
-  element.scrollTop = element.scrollHeight - element.clientHeight;
+
+  const container = $('#algoDataOut');
+  const panel = document.createElement('div');
+  panel.className = 'algo-chunk-panel';
+
+  const header = document.createElement('div');
+  header.className = 'algo-chunk-header';
+
+  const summary = document.createElement('div');
+  summary.className = 'algo-chunk-summary';
+  summary.textContent = buildAlgoChunkSummary(chunk);
+
+  const actions = document.createElement('div');
+  actions.className = 'algo-chunk-actions';
+
+  const downloadButton = document.createElement('button');
+  downloadButton.type = 'button';
+  downloadButton.className = 'algo-chunk-download-btn';
+  downloadButton.textContent = '下载 JSON';
+  downloadButton.addEventListener('click', () => {
+    downloadAlgoChunkJson(chunk);
+  });
+
+  actions.appendChild(downloadButton);
+  header.appendChild(summary);
+  header.appendChild(actions);
+  panel.appendChild(header);
+  container.append(panel);
+
+  const element = container[0];
+  if (element) {
+    element.scrollTop = element.scrollHeight - element.clientHeight;
+  }
 }
 
 function logStatus(message) {
