@@ -330,6 +330,30 @@ export default class M3U8Parser {
     let currentPart = 0;
     let totalduration = 0;
     let discontinuityCounter = 0;
+    // Algo fake fragments (filtered by `algoSegmentPattern`) are typically wrapped with
+    // a pair of EXT-X-DISCONTINUITY tags, even though the surrounding video fragments
+    // have strictly continuous PTS and do not need a discontinuity boundary in hls.js.
+    //
+    // Strategy: pair each algo fragment with *exactly one* preceding D and *exactly one*
+    // trailing D so that neighbouring video fragments keep the same `cc`, and hls.js
+    // downstream does not recompute `timestampOffset` from EXTINF accumulation.
+    //
+    // - `algoPendingDiscontinuity` flips to true when a D is parsed, and back to false
+    //   whenever a regular (non-algo) fragment consumes that D. It represents "there is
+    //   an unclaimed D right before the next URI".
+    // - When an algo URI is seen and `algoPendingDiscontinuity` is true, roll back the
+    //   preceding D (`counter--`) and arm `skipNextDiscontinuity` so the paired trailing
+    //   D is absorbed.
+    // - If an algo URI has no preceding D (e.g. first fragment is algo, or two algos
+    //   are not wrapped strictly), we do NOT roll back / do NOT arm skip. This prevents
+    //   swallowing a genuine downstream discontinuity (codec switch, timebase jump).
+    //
+    // Scope: URI-level fake fragments only. PART-level (LL-HLS) is intentionally not
+    // handled — by business design, algo payloads only exist in offline/VOD streams
+    // (the analysis is pre-computed after recording), while LL-HLS is always live.
+    // The two modes are mutually exclusive, so `PART + algo` cannot occur in practice.
+    let algoPendingDiscontinuity = false;
+    let skipNextDiscontinuity = false;
     let currentBitrate = 0;
     let prevFrag: Fragment | null = null;
     let frag: Fragment = new Fragment(type, base);
@@ -403,8 +427,17 @@ export default class M3U8Parser {
             prevFrag.algoRelurl = relurl;
           } else {
             logger.warn(
-              `[m3u8-parser] 发现算法分片但缺少前序视频分片：${relurl}`,
+              `[m3u8-parser] algo fragment found without a preceding video fragment: ${relurl}`,
             );
+          }
+          // Strictly pair this algo with its immediately preceding D. Only then roll
+          // back `counter` and arm skip for the trailing D. If no preceding D is pending
+          // (e.g. first fragment is algo, or wrappers are malformed), do nothing — this
+          // avoids swallowing a genuine discontinuity elsewhere in the playlist.
+          if (algoPendingDiscontinuity) {
+            discontinuityCounter--;
+            algoPendingDiscontinuity = false;
+            skipNextDiscontinuity = true;
           }
           continue;
         }
@@ -417,6 +450,12 @@ export default class M3U8Parser {
           frag.sn = currentSN;
           frag.level = id;
           frag.cc = discontinuityCounter;
+          // A regular video fragment consumes (or invalidates) any pending algo state.
+          // Reset both flags so a stale pairing from a malformed wrapper — e.g. `D, algo`
+          // not followed by a trailing D — cannot silently swallow a legitimate
+          // discontinuity later in the playlist.
+          algoPendingDiscontinuity = false;
+          skipNextDiscontinuity = false;
           fragments.push(frag);
           frag.relurl = relurl;
           assignProgramDateTime(
@@ -528,8 +567,19 @@ export default class M3U8Parser {
             }
             break;
           case 'DISCONTINUITY':
-            discontinuityCounter++;
-            frag.tagList.push(['DIS']);
+            if (skipNextDiscontinuity) {
+              // Paired trailing D of an algo fake fragment. Absorb it so neighbouring
+              // video fragments see the same `cc` and no discontinuity event fires
+              // downstream.
+              skipNextDiscontinuity = false;
+            } else {
+              discontinuityCounter++;
+              frag.tagList.push(['DIS']);
+              // Mark this D as "claimable" by the very next algo URI. Any regular
+              // video URI that arrives first will clear this flag (see the fragment
+              // push block above), guaranteeing a genuine D is never rolled back.
+              algoPendingDiscontinuity = true;
+            }
             break;
           case 'GAP':
             frag.gap = true;
