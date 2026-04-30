@@ -15,6 +15,7 @@ import type { LevelDetails } from '../loader/level-details';
 import type {
   AipdMessage,
   AlgoChunk,
+  AlgoFrameContext,
   AutoCameraItem,
   DetItem,
   FrameItem,
@@ -72,7 +73,11 @@ class AlgoDataController implements NetworkComponentAPI {
   }
 
   public getFrameByTime(time: number): FrameItem | null {
-    return this.resolveFrameByTime(time);
+    return this.resolveFrameContextByTime(time)?.frame || null;
+  }
+
+  public getFrameContextByTime(time: number): AlgoFrameContext | null {
+    return this.resolveFrameContextByTime(time);
   }
 
   public getFrameByIndex(frameIdx: number): FrameItem | null {
@@ -89,10 +94,10 @@ class AlgoDataController implements NetworkComponentAPI {
   }
 
   public isDataReady(time: number): boolean {
-    return this.resolveFrameByTime(time) !== null;
+    return this.resolveFrameContextByTime(time) !== null;
   }
 
-  private resolveFrameByTime(time: number): FrameItem | null {
+  private resolveFrameContextByTime(time: number): AlgoFrameContext | null {
     const levelDetails = this.getLevelDetails();
     if (!levelDetails || !Number.isFinite(time)) {
       return null;
@@ -105,11 +110,28 @@ class AlgoDataController implements NetworkComponentAPI {
     if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
       return null;
     }
-    const frameOffset = Math.floor((time - frag.start) * chunk.frameRate);
-    if (frameOffset < 0 || frameOffset >= chunk.frames.length) {
+    const localTime = time - frag.start;
+    const localFrameIndex = Math.floor(localTime * chunk.frameRate + 1e-6);
+    const validFrameCount = this.getValidFrameCount(chunk);
+    if (localFrameIndex < 0 || localFrameIndex >= validFrameCount) {
       return null;
     }
-    return chunk.frames[frameOffset] || null;
+    const frame = chunk.frames[localFrameIndex];
+    if (!frame) {
+      return null;
+    }
+    return {
+      frame,
+      chunk,
+      frag,
+      fragSn: chunk.fragSn,
+      chunkIndex: chunk.chunkIndex,
+      localFrameIndex,
+      frameRate: chunk.frameRate,
+      frameSize: validFrameCount,
+      mediaTime: time,
+      localTime,
+    };
   }
 
   public isDataReadyByIndex(frameIdx: number): boolean {
@@ -380,7 +402,8 @@ class AlgoDataController implements NetworkComponentAPI {
     return {
       version: Number(root.version) || 0,
       chunkIndex: Number(root.chunkIndex) || 0,
-      frameSize: frames.length,
+      frameSize: this.resolveFrameSize(root.frameSize, frames.length),
+      frameRate: this.resolveOptionalPositiveNumber(root.frameRate),
       frames,
     };
   }
@@ -388,14 +411,49 @@ class AlgoDataController implements NetworkComponentAPI {
   private extractRootFields(decodedItems: unknown[]): {
     version: unknown;
     chunkIndex: unknown;
+    frameSize: unknown;
+    frameRate: unknown;
     framesRaw: unknown;
   } {
+    if (
+      decodedItems.length === 1 &&
+      decodedItems[0] !== null &&
+      typeof decodedItems[0] === 'object' &&
+      !Array.isArray(decodedItems[0])
+    ) {
+      const obj = decodedItems[0] as Record<string, unknown>;
+      return {
+        version: obj.version,
+        chunkIndex: obj.chunkIndex,
+        frameSize: obj.frameSize,
+        frameRate: obj.frameRate,
+        framesRaw: obj.frames,
+      };
+    }
+
     // Format 1: 4 sequential msgpack values [version, chunkIndex, frameSize, frames]
     if (decodedItems.length === 4) {
       return {
         version: decodedItems[0],
         chunkIndex: decodedItems[1],
+        frameSize: decodedItems[2],
+        frameRate: undefined,
         framesRaw: decodedItems[3],
+      };
+    }
+
+    // Format 1b: [version, chunkIndex, frameSize, frameRate, frames]
+    // or [version, chunkIndex, frameSize, frames, frameRate]
+    if (decodedItems.length === 5) {
+      const fourth = decodedItems[3];
+      const fifth = decodedItems[4];
+      const framesAtFourth = Array.isArray(fourth);
+      return {
+        version: decodedItems[0],
+        chunkIndex: decodedItems[1],
+        frameSize: decodedItems[2],
+        frameRate: framesAtFourth ? fifth : fourth,
+        framesRaw: framesAtFourth ? fourth : fifth,
       };
     }
 
@@ -407,10 +465,28 @@ class AlgoDataController implements NetworkComponentAPI {
       decodedItems[0].length >= 3
     ) {
       const arr = decodedItems[0];
+      if (arr.length === 3) {
+        return {
+          version: arr[0],
+          chunkIndex: arr[1],
+          frameSize: undefined,
+          frameRate: undefined,
+          framesRaw: arr[2],
+        };
+      }
+      const fourth = arr[3];
+      const fifth = arr[4];
+      const framesAtFourth = Array.isArray(fourth);
       return {
         version: arr[0],
         chunkIndex: arr[1],
-        framesRaw: arr.length === 3 ? arr[2] : arr[3],
+        frameSize: arr[2],
+        frameRate: framesAtFourth
+          ? fifth
+          : arr.length >= 5
+            ? fourth
+            : undefined,
+        framesRaw: framesAtFourth ? fourth : arr.length >= 5 ? fifth : fourth,
       };
     }
 
@@ -419,6 +495,22 @@ class AlgoDataController implements NetworkComponentAPI {
 
   private parseFrames(framesRaw: unknown[]): FrameItem[] {
     return framesRaw.map((raw) => this.parseFrameItem(raw));
+  }
+
+  private resolveFrameSize(value: unknown, fallback: number): number {
+    const frameSize = Number(value);
+    if (Number.isFinite(frameSize) && frameSize > 0) {
+      return Math.floor(frameSize);
+    }
+    return fallback;
+  }
+
+  private resolveOptionalPositiveNumber(value: unknown): number | undefined {
+    const number = Number(value);
+    if (Number.isFinite(number) && number > 0) {
+      return number;
+    }
+    return undefined;
   }
 
   private parseFrameItem(raw: unknown): FrameItem {
@@ -588,14 +680,19 @@ class AlgoDataController implements NetworkComponentAPI {
 
     this.checkFrameSequence(message.frames, message.chunkIndex, logger);
 
-    const frameCount = message.frames.length;
+    const validFrameCount = this.resolveValidFrameCount(
+      message.frameSize,
+      message.frames.length,
+    );
     const configFrameRate = hls?.config.algoFrameRate;
     const frameRate =
       Number.isFinite(configFrameRate) && configFrameRate! > 0
         ? (configFrameRate as number)
-        : frag.duration > 0
-          ? frameCount / frag.duration
-          : 0;
+        : Number.isFinite(message.frameRate) && message.frameRate! > 0
+          ? (message.frameRate as number)
+          : frag.duration > 0
+            ? validFrameCount / frag.duration
+            : 0;
 
     return {
       fragSn: typeof frag.sn === 'number' ? frag.sn : -1,
@@ -606,6 +703,21 @@ class AlgoDataController implements NetworkComponentAPI {
       startFrameIndex: message.frames[0]?.frameIdx ?? 1,
       frames: message.frames,
     };
+  }
+
+  private getValidFrameCount(chunk: AlgoChunk): number {
+    return this.resolveValidFrameCount(chunk.frameSize, chunk.frames.length);
+  }
+
+  private resolveValidFrameCount(
+    frameSize: number,
+    frameCount: number,
+  ): number {
+    const resolvedFrameSize =
+      Number.isFinite(frameSize) && frameSize > 0
+        ? Math.floor(frameSize)
+        : frameCount;
+    return Math.min(resolvedFrameSize, frameCount);
   }
 
   private checkFrameSequence(
@@ -636,10 +748,7 @@ class AlgoDataController implements NetworkComponentAPI {
     const chunks = Array.from(this.algoChunkCache.values());
     for (let i = 0; i < chunks.length; i += 1) {
       const chunk = chunks[i];
-      const frameSize =
-        Number.isFinite(chunk.frameSize) && chunk.frameSize > 0
-          ? chunk.frameSize
-          : chunk.frames.length;
+      const frameSize = this.getValidFrameCount(chunk);
       const start = chunk.startFrameIndex ?? 1;
       const end = start + frameSize - 1;
       if (frameIdx >= start && frameIdx <= end) {
