@@ -52,7 +52,7 @@ import type FragmentLoader from './loader/fragment-loader';
 import type { LevelDetails } from './loader/level-details';
 import type M3U8Parser from './loader/m3u8-parser';
 import type TaskLoop from './task-loop';
-import type { AlgoChunk, FrameItem } from './types/algo';
+import type { AlgoChunk, AlgoFrameContext, FrameItem } from './types/algo';
 import type { AttachMediaSourceData } from './types/buffer';
 import type {
   AbrComponentAPI,
@@ -646,6 +646,14 @@ export default class Hls implements HlsEventEmitter {
    */
   getAlgoFrameByTime(time: number): FrameItem | null {
     return this.algoDataController?.getFrameByTime(time) || null;
+  }
+
+  /**
+   * 根据 media time 获取算法帧及分片内索引上下文
+   * localFrameIndex 为分片内 0-based 帧下标，frameSize 为有效可取帧数
+   */
+  getAlgoFrameContextByTime(time: number): AlgoFrameContext | null {
+    return this.algoDataController?.getFrameContextByTime(time) || null;
   }
 
   /**
@@ -1833,6 +1841,15 @@ export type {
   SubtitlePlaylistType,
 } from './types/media-playlist';
 export type { Track, TrackSet } from './types/track';
+export type {
+  AipdMessage,
+  AlgoChunk,
+  AlgoFrameContext,
+  AutoCameraItem,
+  DetItem,
+  FrameItem,
+  TrackItem,
+} from './types/algo';
 export type { ChunkMetadata, TransmuxerResult } from './types/transmuxer';
 export type { MediaDecodingInfo } from './utils/mediacapabilities-helper';
 export type {

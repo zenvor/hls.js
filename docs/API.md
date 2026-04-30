@@ -186,9 +186,11 @@ See [API Reference](https://hlsjs-dev.video-dev.org/api-docs/) for a complete li
   - [`hls.url`](#hlsurl)
 - [Algo Data API](#algo-data-api)
   - [`hls.getAlgoFrameByTime(time: number)`](#hlsgetalgoframebytimetime-number)
+  - [`hls.getAlgoFrameContextByTime(time: number)`](#hlsgetalgoframecontextbytimetime-number)
   - [`hls.getAlgoFrameByIndex(frameIdx: number)`](#hlsgetalgoframebyindexframeidx-number)
   - [`hls.isAlgoDataReady(time: number)`](#hlsisalgodatareadytime-number)
   - [`hls.isAlgoDataReadyByIndex(frameIdx: number)`](#hlsisalgodatareadybyindexframeidx-number)
+  - [`hls.getAllCachedAlgoChunks()`](#hlsgetallcachedalgochunks)
 - [Audio Tracks Control API](#audio-tracks-control-api)
   - [`hls.setAudioOption(audioOption)`](#hlssetaudiooptionaudiooption)
   - [`hls.allAudioTracks`](#hlsallaudiotracks)
@@ -2165,6 +2167,10 @@ These methods are available when algo data loading is enabled (`algoDataEnabled 
 
 - get: Returns the `FrameItem` for the given playback time in seconds, or `null` when not available.
 
+### `hls.getAlgoFrameContextByTime(time: number)`
+
+- get: Returns an `AlgoFrameContext` describing the frame at the given playback time in seconds, including the owning chunk, the source media fragment, the 0-based `localFrameIndex` within the chunk, the chunk `frameRate`, the valid `frameSize` (capped by both the server-declared size and the actually decoded frame count), and the resolved `mediaTime` / `localTime`. Returns `null` when not available.
+
 ### `hls.getAlgoFrameByIndex(frameIdx: number)`
 
 - get: Returns the `FrameItem` for the given frame index (1-based), or `null` when not available.
@@ -2176,6 +2182,10 @@ These methods are available when algo data loading is enabled (`algoDataEnabled 
 ### `hls.isAlgoDataReadyByIndex(frameIdx: number)`
 
 - get: Returns whether algo data for the given frame index (1-based) is ready.
+
+### `hls.getAllCachedAlgoChunks()`
+
+- get: Returns an array of all cached `AlgoChunk` instances, sorted by fragment sequence number and then by chunk index.
 
 ## Audio Tracks Control API
 

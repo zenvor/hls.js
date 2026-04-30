@@ -1,3 +1,5 @@
+import type { MediaFragment } from '../loader/fragment';
+
 export type AutoCameraItem = {
   x: number;
   y: number;
@@ -30,6 +32,7 @@ export type AipdMessage = {
   version: number;
   chunkIndex: number;
   frameSize: number;
+  frameRate?: number;
   frames: FrameItem[];
 };
 
@@ -41,4 +44,17 @@ export type AlgoChunk = {
   frameRate: number;
   startFrameIndex: number;
   frames: FrameItem[];
+};
+
+export type AlgoFrameContext = {
+  frame: FrameItem;
+  chunk: AlgoChunk;
+  frag: MediaFragment;
+  fragSn: number;
+  chunkIndex: number;
+  localFrameIndex: number;
+  frameRate: number;
+  frameSize: number;
+  mediaTime: number;
+  localTime: number;
 };

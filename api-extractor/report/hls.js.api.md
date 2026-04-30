@@ -84,6 +84,46 @@ export type ABRControllerConfig = {
     maxLoadingDelay: number;
 };
 
+// Warning: (ae-missing-release-tag) "AipdMessage" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type AipdMessage = {
+    version: number;
+    chunkIndex: number;
+    frameSize: number;
+    frameRate?: number;
+    frames: FrameItem[];
+};
+
+// Warning: (ae-missing-release-tag) "AlgoChunk" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type AlgoChunk = {
+    fragSn: number;
+    algoUrl: string;
+    chunkIndex: number;
+    frameSize: number;
+    frameRate: number;
+    startFrameIndex: number;
+    frames: FrameItem[];
+};
+
+// Warning: (ae-missing-release-tag) "AlgoFrameContext" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type AlgoFrameContext = {
+    frame: FrameItem;
+    chunk: AlgoChunk;
+    frag: MediaFragment;
+    fragSn: number;
+    chunkIndex: number;
+    localFrameIndex: number;
+    frameRate: number;
+    frameSize: number;
+    mediaTime: number;
+    localTime: number;
+};
+
 // Warning: (ae-missing-release-tag) "AssetListJSON" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -300,6 +340,16 @@ export interface AudioTrackUpdatedData {
     // (undocumented)
     id: number;
 }
+
+// Warning: (ae-missing-release-tag) "AutoCameraItem" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type AutoCameraItem = {
+    x: number;
+    y: number;
+    focus: number;
+    reserved: [number, number, number, number];
+};
 
 // Warning: (ae-missing-release-tag) "BackBufferData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -1135,6 +1185,16 @@ export const enum DecrypterAesMode {
     // (undocumented)
     ctr = 1
 }
+
+// Warning: (ae-missing-release-tag) "DetItem" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type DetItem = {
+    classId: number;
+    score: number;
+    box: [number, number, number, number];
+    reserved: [number, number, number, number];
+};
 
 // Warning: (ae-missing-release-tag) "DRMSystemConfiguration" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
@@ -2069,6 +2129,16 @@ export interface FragParsingUserdataData {
     samples: UserdataSample[];
 }
 
+// Warning: (ae-missing-release-tag) "FrameItem" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type FrameItem = {
+    frameIdx: number;
+    autoCameras: AutoCameraItem;
+    tracks: TrackItem[];
+    detections: DetItem[];
+};
+
 // Warning: (ae-missing-release-tag) "GapControllerConfig" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -2149,10 +2219,8 @@ class Hls implements HlsEventEmitter {
     set firstLevel(newLevel: number);
     get forceStartLoad(): boolean;
     getAlgoFrameByIndex(frameIdx: number): FrameItem | null;
-    // Warning: (ae-forgotten-export) The symbol "FrameItem" needs to be exported by the entry point hls.d.ts
     getAlgoFrameByTime(time: number): FrameItem | null;
-    // Warning: (ae-forgotten-export) The symbol "AlgoChunk" needs to be exported by the entry point hls.d.ts
-    //
+    getAlgoFrameContextByTime(time: number): AlgoFrameContext | null;
     // (undocumented)
     getAllCachedAlgoChunks(): AlgoChunk[];
     getMediaDecodingInfo(level: Level, audioTracks?: MediaPlaylist[]): Promise<MediaDecodingInfo>;
@@ -5010,6 +5078,16 @@ export interface Track extends BaseTrack {
     // (undocumented)
     initSegment?: Uint8Array<ArrayBuffer>;
 }
+
+// Warning: (ae-missing-release-tag) "TrackItem" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export type TrackItem = {
+    trackId: number;
+    score: number;
+    box: [number, number, number, number];
+    reserved: [number, number, number, number];
+};
 
 // Warning: (ae-missing-release-tag) "TrackLoadedData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
