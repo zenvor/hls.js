@@ -8,8 +8,8 @@ import type { AlgoDistanceData } from '../../../src/types/algo';
 
 describe('AlgoDistanceController', function () {
   function createHls(triggerCalls?: Array<[string, any]>) {
-    // 完整模拟 hls.on/off/trigger 的 context 绑定语义，让真实 controller 监听器
-    // 在 trigger 时拿到正确的 this。
+    // 仅模拟本测试集需要的 on/off/trigger + context 绑定语义；
+    // 不实现 once / removeAllListeners 等真实 hls.on 完整 API。
     const listeners = new Map<string, Array<{ fn: any; ctx: any }>>();
     const config: any = {
       ...hlsDefaultConfig,
@@ -130,16 +130,21 @@ describe('AlgoDistanceController', function () {
       expect(result.raw[2]).to.equal(true);
     });
 
-    it('freezes the returned data and its inner arrays', function () {
+    it('deep-freezes the returned data, matrix, raw, and nested arrays', function () {
       const controller = createController();
       const payload = buildPayload({ matrix: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
       const result: AlgoDistanceData = (controller as any).parseDistance(
         payload,
       );
 
+      // 顶层 + matrix + raw 都冻结
       expect(Object.isFrozen(result)).to.equal(true);
       expect(Object.isFrozen(result.matrix)).to.equal(true);
       expect(Object.isFrozen(result.raw)).to.equal(true);
+      // 嵌套数组（raw[3] = matrix 源数据；raw[4] = meta 数组）也必须冻结，
+      // 否则 `data.raw[4][0] = 999` 之类的写入会污染 controller 缓存。
+      expect(Object.isFrozen(result.raw[3])).to.equal(true);
+      expect(Object.isFrozen(result.raw[4])).to.equal(true);
     });
 
     it('accepts trailing fields beyond fixarray(5) for forward compatibility', function () {
@@ -299,6 +304,35 @@ describe('AlgoDistanceController', function () {
       expect(startedUrls).to.have.lengthOf(0);
     });
 
+    it('resumes loading after stopLoad/startLoad on the same details', function () {
+      // 防 M1 回归：stopLoad 中断 in-flight 后 startLoad，应能重新触发同 details 的加载，
+      // 而不是被 loadStatus='loading' 残留卡死永久跳过。
+      const controller = createController();
+      controller.startLoad();
+      const startedUrls: string[] = [];
+      (controller as any).startDistanceLoad = (url: string) => {
+        startedUrls.push(url);
+        (controller as any).loadStatus = 'loading';
+      };
+
+      const details = new LevelDetails('http://example.com/level.m3u8');
+      details.algoDistanceRelurl = 'algo_distance.ts';
+
+      // 启动加载 → in-flight
+      (controller as any).maybeLoadDistance(details);
+      expect(startedUrls).to.have.lengthOf(1);
+      expect((controller as any).loadStatus).to.equal('loading');
+
+      // stopLoad 中断 → loadStatus 应回退为 idle
+      controller.stopLoad();
+      expect((controller as any).loadStatus).to.equal('idle');
+
+      // startLoad 恢复 + 同 details 触发 → 必须能重新加载
+      controller.startLoad();
+      (controller as any).maybeLoadDistance(details);
+      expect(startedUrls).to.have.lengthOf(2);
+    });
+
     it('skips when loaded; allows retry on failed when details reference changes', function () {
       const controller = createController();
       (controller as any).started = true;
@@ -367,6 +401,49 @@ describe('AlgoDistanceController', function () {
       expect(controller.isReady()).to.equal(true);
       expect(controller.getDistance()?.matrix).to.have.lengthOf(9);
       expect((controller as any).loadStatus).to.equal('loaded');
+    });
+
+    it('triggers ALGO_DISTANCE_ERROR with a populated payload on load error', function () {
+      const triggers: Array<[string, any]> = [];
+      const { hls } = createHls(triggers);
+      const controller = new AlgoDistanceController(hls);
+      (controller as any).started = true;
+      // 跳过重试，让第一次错误直接走 markFailed + reportError
+      (controller as any).retryLoad = () => false;
+
+      const fakeLoader: any = {
+        load: (context: any, _config: any, callbacks: any) => {
+          callbacks.onError({ code: 404, text: 'Not Found' }, context, null, {
+            /* stats */
+          } as any);
+        },
+        abort: () => {},
+        destroy: () => {},
+      };
+      (controller as any).createLoader = () => fakeLoader;
+
+      const details = new LevelDetails('http://example.com/sv/level.m3u8');
+      details.algoDistanceRelurl = 'algo_distance.ts';
+
+      hls.trigger(Events.LEVEL_LOADED, { details, level: 0 });
+
+      let errorEntry: [string, any] | undefined;
+      for (let i = 0; i < triggers.length; i++) {
+        if (triggers[i][0] === Events.ALGO_DISTANCE_ERROR) {
+          errorEntry = triggers[i];
+          break;
+        }
+      }
+      expect(
+        errorEntry,
+        'should have triggered ALGO_DISTANCE_ERROR',
+      ).to.not.equal(undefined);
+      const [, errorPayload] = errorEntry as [string, any];
+      expect(errorPayload.url).to.match(/algo_distance\.ts/);
+      expect(errorPayload.error).to.be.instanceOf(Error);
+      expect(errorPayload.reason).to.match(/HTTP 404/);
+      // 状态机应进入 failed 终态
+      expect((controller as any).loadStatus).to.equal('failed');
     });
 
     it('discards stale loader callbacks after MANIFEST_LOADING reset', function () {

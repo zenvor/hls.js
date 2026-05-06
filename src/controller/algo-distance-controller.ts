@@ -143,9 +143,13 @@ class AlgoDistanceController implements NetworkComponentAPI {
     if (this.currentDistanceKey === key) {
       // 同 key 已处理，按状态决定是否放行：
       // - loaded / loading：跳过；
-      // - failed：仅当 details 引用变化（即又一次 playlist 解析）才允许重试。
-      if (this.loadStatus !== 'failed') return;
-      if (this.lastFailedDetails === details) return;
+      // - failed：仅当 details 引用变化（即又一次 playlist 解析）才允许重试；
+      // - idle：fallthrough 允许重新加载（覆盖 stopLoad 中断 in-flight 后再
+      //   startLoad 的恢复路径——abortLoad 会把 loading 态回退为 idle）。
+      if (this.loadStatus === 'loaded' || this.loadStatus === 'loading') return;
+      if (this.loadStatus === 'failed' && this.lastFailedDetails === details) {
+        return;
+      }
     }
 
     // 进入新一轮：取消任何 in-flight，重置计数与失败标记
@@ -162,6 +166,10 @@ class AlgoDistanceController implements NetworkComponentAPI {
    * 用 absolute URL 的 pathname 做去重键，剔除 query / hash。
    * 这样 OSS 签名刷新（同路径不同 signature）不会触发重复请求；
    * 多 level / 多 CDN 域名下同名子文件也能稳定识别。
+   *
+   * `buildAbsoluteURL` 若返回非空字符串通常 `new URL` 都能解析，
+   * fallback 仅作防御兜底（极端非法输入时退化为 substring 截取），
+   * 正常路径几乎不可达。
    */
   private deriveKey(absoluteUrl: string): string {
     try {
@@ -313,12 +321,36 @@ class AlgoDistanceController implements NetworkComponentAPI {
     if (!Array.isArray(matrixRaw) || matrixRaw.length !== 9) {
       throw new Error('algo_distance 矩阵长度不正确（期望 9 元素）');
     }
-    const matrix = Object.freeze(matrixRaw.map((v) => Number(v) || 0));
-    const raw = Object.freeze(root as unknown[]);
-    return Object.freeze({
+    const matrix = matrixRaw.map((v) => Number(v) || 0);
+    const raw = root as unknown[];
+    // deep-freeze：包含 raw 顶层、raw[3]（矩阵源数组）、raw[4]（meta 数组）等
+    // 所有嵌套数组/对象，确保消费者无法通过 `data.raw[4][0] = ...` 之类污染缓存。
+    return this.deepFreeze({
       matrix,
       raw,
     });
+  }
+
+  /**
+   * 递归冻结对象/数组及其嵌套元素。已冻结的会被跳过；
+   * 非对象（number/string/boolean/null/undefined）原样返回。
+   */
+  private deepFreeze<T>(value: T): T {
+    if (value === null || typeof value !== 'object') return value;
+    if (Object.isFrozen(value)) return value;
+    if (Array.isArray(value)) {
+      for (let i = 0; i < value.length; i++) {
+        this.deepFreeze(value[i]);
+      }
+    } else {
+      const obj = value as Record<string, unknown>;
+      for (const k in obj) {
+        if (Object.prototype.hasOwnProperty.call(obj, k)) {
+          this.deepFreeze(obj[k]);
+        }
+      }
+    }
+    return Object.freeze(value);
   }
 
   /** v2.8 的 decodeMulti 返回 Generator；用 Array.from 物化成数组。 */
@@ -416,6 +448,12 @@ class AlgoDistanceController implements NetworkComponentAPI {
       this.currentLoader = null;
     }
     this.clearRetryTimer();
+    // in-flight 加载被打断 → 回到 idle 让后续 startLoad / 同 details 能重新触发；
+    // loaded / failed 是终态（成功幂等 / 失败由 lastFailedDetails 控制重试），
+    // 不应被 abort 改写。
+    if (this.loadStatus === 'loading') {
+      this.loadStatus = 'idle';
+    }
   }
 
   private clearRetryTimer() {
