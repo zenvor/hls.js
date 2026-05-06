@@ -1874,12 +1874,18 @@ export type { Track, TrackSet } from './types/track';
 export type {
   AipdMessage,
   AlgoChunk,
+  AlgoDistanceData,
   AlgoFrameContext,
   AutoCameraItem,
   DetItem,
   FrameItem,
   TrackItem,
 } from './types/algo';
+export type {
+  AlgoDistanceErrorData,
+  AlgoDistanceLoadedData,
+  AlgoDistanceLoadingData,
+} from './types/events';
 export type { ChunkMetadata, TransmuxerResult } from './types/transmuxer';
 export type { MediaDecodingInfo } from './utils/mediacapabilities-helper';
 export type {

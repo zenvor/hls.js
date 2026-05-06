@@ -108,6 +108,54 @@ export type AlgoChunk = {
     frames: FrameItem[];
 };
 
+// Warning: (ae-missing-release-tag) "AlgoDistanceData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public
+export type AlgoDistanceData = {
+    readonly matrix: readonly number[];
+    readonly raw: readonly unknown[];
+};
+
+// Warning: (ae-missing-release-tag) "AlgoDistanceErrorData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export interface AlgoDistanceErrorData {
+    // (undocumented)
+    error: Error;
+    // Warning: (ae-forgotten-export) The symbol "NullableNetworkDetails" needs to be exported by the entry point hls.d.ts
+    //
+    // (undocumented)
+    networkDetails?: NullableNetworkDetails;
+    // (undocumented)
+    reason: string;
+    // (undocumented)
+    stats?: LoaderStats;
+    // (undocumented)
+    url: string;
+}
+
+// Warning: (ae-missing-release-tag) "AlgoDistanceLoadedData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export interface AlgoDistanceLoadedData {
+    // (undocumented)
+    distance: AlgoDistanceData;
+    // (undocumented)
+    networkDetails: NullableNetworkDetails;
+    // (undocumented)
+    stats: LoaderStats;
+    // (undocumented)
+    url: string;
+}
+
+// Warning: (ae-missing-release-tag) "AlgoDistanceLoadingData" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
+//
+// @public (undocumented)
+export interface AlgoDistanceLoadingData {
+    // (undocumented)
+    url: string;
+}
+
 // Warning: (ae-missing-release-tag) "AlgoFrameContext" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
 //
 // @public (undocumented)
@@ -142,8 +190,6 @@ export interface AssetListLoadedData {
     assetListResponse: AssetListJSON;
     // (undocumented)
     event: InterstitialEventWithAssetList;
-    // Warning: (ae-forgotten-export) The symbol "NullableNetworkDetails" needs to be exported by the entry point hls.d.ts
-    //
     // (undocumented)
     networkDetails: NullableNetworkDetails;
 }
@@ -1550,6 +1596,12 @@ export enum Events {
     // (undocumented)
     ALGO_DATA_LOADING = "hlsAlgoDataLoading",
     // (undocumented)
+    ALGO_DISTANCE_ERROR = "hlsAlgoDistanceError",
+    // (undocumented)
+    ALGO_DISTANCE_LOADED = "hlsAlgoDistanceLoaded",
+    // (undocumented)
+    ALGO_DISTANCE_LOADING = "hlsAlgoDistanceLoading",
+    // (undocumented)
     ASSET_LIST_LOADED = "hlsAssetListLoaded",
     // (undocumented)
     ASSET_LIST_LOADING = "hlsAssetListLoading",
@@ -2218,6 +2270,7 @@ class Hls implements HlsEventEmitter {
     // Warning: (ae-setter-with-docs) The doc comment for the property "firstLevel" must appear on the getter, not the setter.
     set firstLevel(newLevel: number);
     get forceStartLoad(): boolean;
+    getAlgoDistance(): AlgoDistanceData | null;
     getAlgoFrameByIndex(frameIdx: number): FrameItem | null;
     getAlgoFrameByTime(time: number): FrameItem | null;
     getAlgoFrameContextByTime(time: number): AlgoFrameContext | null;
@@ -2231,6 +2284,7 @@ class Hls implements HlsEventEmitter {
     get interstitialsManager(): InterstitialsManager | null;
     isAlgoDataReady(time: number): boolean;
     isAlgoDataReadyByIndex(frameIdx: number): boolean;
+    isAlgoDistanceReady(): boolean;
     static isMSESupported(): boolean;
     static isSupported(): boolean;
     get latency(): number;
@@ -2500,6 +2554,12 @@ export interface HlsListeners {
     //
     // (undocumented)
     [Events.ALGO_DATA_LOADING]: (event: Events.ALGO_DATA_LOADING, data: AlgoDataLoadingData) => void;
+    // (undocumented)
+    [Events.ALGO_DISTANCE_ERROR]: (event: Events.ALGO_DISTANCE_ERROR, data: AlgoDistanceErrorData) => void;
+    // (undocumented)
+    [Events.ALGO_DISTANCE_LOADED]: (event: Events.ALGO_DISTANCE_LOADED, data: AlgoDistanceLoadedData) => void;
+    // (undocumented)
+    [Events.ALGO_DISTANCE_LOADING]: (event: Events.ALGO_DISTANCE_LOADING, data: AlgoDistanceLoadingData) => void;
     // (undocumented)
     [Events.ASSET_LIST_LOADED]: (event: Events.ASSET_LIST_LOADED, data: AssetListLoadedData) => void;
     // (undocumented)
@@ -3418,6 +3478,8 @@ export class LevelDetails {
     // (undocumented)
     ageHeader: number;
     // (undocumented)
+    algoDistanceRelurl?: string;
+    // (undocumented)
     alignedSliding: boolean;
     // (undocumented)
     appliedTimelineOffset?: number;
@@ -3997,7 +4059,7 @@ export class M3U8Parser {
     // (undocumented)
     static isMediaPlaylist(str: string): boolean;
     // (undocumented)
-    static parseLevelPlaylist(string: string, baseurl: string, id: number, type: PlaylistLevelType, levelUrlId: number, multivariantVariableList: VariableMap | null, algoSegmentPattern?: RegExp | string | null): LevelDetails;
+    static parseLevelPlaylist(string: string, baseurl: string, id: number, type: PlaylistLevelType, levelUrlId: number, multivariantVariableList: VariableMap | null, algoSegmentPattern?: RegExp | string | null, algoDistanceEnabled?: boolean): LevelDetails;
     // (undocumented)
     static parseMasterPlaylist(string: string, baseurl: string): ParsedMultivariantPlaylist;
     // Warning: (ae-forgotten-export) The symbol "ParsedMultivariantMediaOptions" needs to be exported by the entry point hls.d.ts
