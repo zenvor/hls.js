@@ -2187,6 +2187,26 @@ These methods are available when algo data loading is enabled (`algoDataEnabled 
 
 - get: Returns an array of all cached `AlgoChunk` instances, sorted by fragment sequence number and then by chunk index.
 
+## Algo Distance API
+
+These methods are available when algo data loading is enabled (`algoDataEnabled = true`) and the playlist contains a stream-level `__algo_distance.ts` metadata segment. Such a segment carries a 3x3 homography matrix (currently a placeholder of zeros until the encoder side fills it in) used to map screen coordinates to world coordinates for distance measurement.
+
+### `hls.getAlgoDistance()`
+
+- get: Returns the `AlgoDistanceData` (containing the 9-element row-major `matrix` plus the original MessagePack `raw` array) once the distance segment has been loaded and decoded; returns `null` otherwise.
+
+### `hls.isAlgoDistanceReady()`
+
+- get: Returns `true` after the distance segment has been loaded and decoded.
+
+### Events
+
+- `Hls.Events.ALGO_DISTANCE_LOADING` — fired when the distance segment starts loading. Payload: `{ url }`.
+- `Hls.Events.ALGO_DISTANCE_LOADED` — fired after a successful load+decode. Payload: `{ url, distance, networkDetails, stats }`.
+- `Hls.Events.ALGO_DISTANCE_ERROR` — fired when loading or decoding fails (after retries exhausted). Payload: `{ url, error, reason, networkDetails?, stats? }`.
+
+Events are not replayed for late subscribers; use `getAlgoDistance()` to retrieve the current snapshot at any time.
+
 ## Audio Tracks Control API
 
 ### `hls.setAudioOption(audioOption)`

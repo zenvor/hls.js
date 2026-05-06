@@ -319,6 +319,7 @@ export default class M3U8Parser {
     levelUrlId: number,
     multivariantVariableList: VariableMap | null,
     algoSegmentPattern?: RegExp | string | null,
+    algoDistanceEnabled?: boolean,
   ): LevelDetails {
     const base = { url: baseurl };
     const level = new LevelDetails(baseurl);
@@ -417,6 +418,27 @@ export default class M3U8Parser {
         const relurl = __USE_VARIABLE_SUBSTITUTION__
           ? substituteVariables(level, uri)
           : uri;
+        const isDistance =
+          type === PlaylistLevelType.MAIN &&
+          !!algoDistanceEnabled &&
+          isAlgoDistanceSegment(relurl);
+        if (isDistance) {
+          // 流级一次性元数据，整流仅一个；命中即写入 level，重复则忽略并 warn
+          if (!level.algoDistanceRelurl) {
+            level.algoDistanceRelurl = relurl;
+          } else {
+            logger.warn(
+              `[m3u8-parser] 重复的 algo_distance 分片，已忽略：${relurl}`,
+            );
+          }
+          // 与 _dat.ts 同样的 D 对消除策略：成对吸收前后两个 D，保持 cc 连续
+          if (algoPendingDiscontinuity) {
+            discontinuityCounter--;
+            algoPendingDiscontinuity = false;
+            skipNextDiscontinuity = true;
+          }
+          continue;
+        }
         const shouldTreatAsAlgo =
           type === PlaylistLevelType.MAIN &&
           !!algoSegmentPattern &&
@@ -917,6 +939,13 @@ function isLikelyAlgoSegment(uri: string, duration: number | null): boolean {
   }
   const cleanUri = uri.split(/[?#]/)[0];
   return /_dat\.ts$/i.test(cleanUri);
+}
+
+// 流级一次性测距元数据分片的文件名固定为 `*__algo_distance.ts`，
+// 因后缀稳定（不像 _dat.ts 有任意编号），此处硬编码识别即可，不暴露为 config。
+function isAlgoDistanceSegment(uri: string): boolean {
+  const cleanUri = uri.split(/[?#]/)[0];
+  return /__algo_distance\.ts$/i.test(cleanUri);
 }
 
 function findFragmentWithStartDate(

@@ -58,6 +58,10 @@ export class LevelDetails {
   public variableList: VariableMap | null = null;
   public hasVariableRefs = false;
   public appliedTimelineOffset?: number;
+  // 流级一次性测距元数据分片（`*__algo_distance.ts`）的相对 URL，
+  // 由 m3u8-parser 在 `algoDistanceEnabled=true` 时识别并写入。
+  // 整流仅会出现一个；多次出现时仅首个生效。
+  public algoDistanceRelurl?: string;
 
   constructor(baseUrl: string) {
     this.fragments = [];

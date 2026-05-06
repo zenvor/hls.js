@@ -3,6 +3,7 @@ import { EventEmitter } from 'eventemitter3';
 import { buildAbsoluteURL } from 'url-toolkit';
 import { enableStreamingMode, hlsDefaultConfig, mergeConfig } from './config';
 import AlgoDataController from './controller/algo-data-controller';
+import AlgoDistanceController from './controller/algo-distance-controller';
 import { FragmentTracker } from './controller/fragment-tracker';
 import GapController from './controller/gap-controller';
 import ID3TrackController from './controller/id3-track-controller';
@@ -52,7 +53,12 @@ import type FragmentLoader from './loader/fragment-loader';
 import type { LevelDetails } from './loader/level-details';
 import type M3U8Parser from './loader/m3u8-parser';
 import type TaskLoop from './task-loop';
-import type { AlgoChunk, AlgoFrameContext, FrameItem } from './types/algo';
+import type {
+  AlgoChunk,
+  AlgoDistanceData,
+  AlgoFrameContext,
+  FrameItem,
+} from './types/algo';
 import type { AttachMediaSourceData } from './types/buffer';
 import type {
   AbrComponentAPI,
@@ -128,6 +134,7 @@ export default class Hls implements HlsEventEmitter {
   private levelController: LevelController;
   private streamController: StreamController;
   private algoDataController?: AlgoDataController;
+  private algoDistanceController?: AlgoDistanceController;
   private audioStreamController?: AudioStreamController;
   private subtititleStreamController?: SubtitleStreamController;
   private audioTrackController?: AudioTrackController;
@@ -281,6 +288,10 @@ export default class Hls implements HlsEventEmitter {
       ? (this.algoDataController = new AlgoDataController(this))
       : null;
 
+    const algoDistanceController = config.algoDataEnabled
+      ? (this.algoDistanceController = new AlgoDistanceController(this))
+      : null;
+
     const gapController = (this.gapController = new GapController(
       this,
       fragmentTracker,
@@ -298,6 +309,9 @@ export default class Hls implements HlsEventEmitter {
     ];
     if (algoDataController) {
       networkControllers.push(algoDataController);
+    }
+    if (algoDistanceController) {
+      networkControllers.push(algoDistanceController);
     }
     if (interstitialsController) {
       networkControllers.splice(1, 0, interstitialsController);
@@ -679,6 +693,22 @@ export default class Hls implements HlsEventEmitter {
 
   getAllCachedAlgoChunks(): AlgoChunk[] {
     return this.algoDataController?.getAllCachedChunks() ?? [];
+  }
+
+  /**
+   * 同步获取流级一次性测距元数据，未加载或不存在时返回 null。
+   *
+   * 仅在 `config.algoDataEnabled = true` 且播放列表中含 `__algo_distance.ts` 分片时有效。
+   */
+  getAlgoDistance(): AlgoDistanceData | null {
+    return this.algoDistanceController?.getDistance() ?? null;
+  }
+
+  /**
+   * 判断流级测距元数据是否已加载完成。
+   */
+  isAlgoDistanceReady(): boolean {
+    return this.algoDistanceController?.isReady() ?? false;
   }
 
   /**

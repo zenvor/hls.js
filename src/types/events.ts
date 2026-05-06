@@ -35,7 +35,7 @@ import type {
 } from '../controller/interstitials-schedule';
 import type { ErrorDetails, ErrorTypes } from '../errors';
 import type { HlsListeners } from '../events';
-import type { AlgoChunk } from './algo';
+import type { AlgoChunk, AlgoDistanceData } from './algo';
 import type { NullableNetworkDetails } from './network-details';
 import type { Fragment, MediaFragment, Part } from '../loader/fragment';
 import type {
@@ -311,6 +311,25 @@ export interface AlgoDataLoadedData {
 
 export interface AlgoDataErrorData {
   frag: Fragment;
+  url: string;
+  error: Error;
+  reason: string;
+  networkDetails?: NullableNetworkDetails;
+  stats?: LoaderStats;
+}
+
+export interface AlgoDistanceLoadingData {
+  url: string;
+}
+
+export interface AlgoDistanceLoadedData {
+  url: string;
+  distance: AlgoDistanceData;
+  networkDetails: NullableNetworkDetails;
+  stats: LoaderStats;
+}
+
+export interface AlgoDistanceErrorData {
   url: string;
   error: Error;
   reason: string;

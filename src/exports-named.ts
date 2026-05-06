@@ -65,11 +65,15 @@ export type {
   FrameItem,
   TrackItem,
   AlgoChunk,
+  AlgoDistanceData,
 } from './types/algo';
 export type {
   AlgoDataErrorData,
   AlgoDataLoadedData,
   AlgoDataLoadingData,
+  AlgoDistanceErrorData,
+  AlgoDistanceLoadedData,
+  AlgoDistanceLoadingData,
 } from './types/events';
 export {
   NetworkErrorAction,

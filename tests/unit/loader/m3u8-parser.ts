@@ -3266,6 +3266,127 @@ a{$bar}.mp4
   });
 });
 
+describe('M3U8Parser algo_distance', function () {
+  const baseUrl = 'http://example.com/sv/';
+  // 一个最小化播放列表，复刻业务侧观察到的结构：
+  // 视频 → D → distance（0.001s）→ D → 视频 → D → algo dat（0.001s）→ D → 视频
+  const playlist = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:10.000,
+main_0.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:0.001,
+main__algo_distance.ts?security-token=AAA
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000,
+main_1.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:0.001,
+main__algo_1_dat.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000,
+main_2.ts
+#EXT-X-ENDLIST
+`;
+
+  it('recognizes __algo_distance.ts and writes algoDistanceRelurl when enabled', function () {
+    const level = M3U8Parser.parseLevelPlaylist(
+      playlist,
+      baseUrl,
+      0,
+      PlaylistLevelType.MAIN,
+      0,
+      null,
+      /_dat\.ts$/i,
+      true, // algoDistanceEnabled
+    );
+
+    expect(level.algoDistanceRelurl).to.equal(
+      'main__algo_distance.ts?security-token=AAA',
+    );
+    // 三个真实视频分片，distance 与 algo_dat 都不应入列
+    expect(level.fragments).to.have.lengthOf(3);
+    expect(level.fragments[0].relurl).to.equal('main_0.ts');
+    expect(level.fragments[1].relurl).to.equal('main_1.ts');
+    expect(level.fragments[2].relurl).to.equal('main_2.ts');
+  });
+
+  it('keeps cc continuous across distance and algo_dat segments', function () {
+    const level = M3U8Parser.parseLevelPlaylist(
+      playlist,
+      baseUrl,
+      0,
+      PlaylistLevelType.MAIN,
+      0,
+      null,
+      /_dat\.ts$/i,
+      true,
+    );
+
+    // 三个真实视频分片应共享同一个 cc（D 对成对吸收，没有真正的不连续）
+    expect(level.fragments[0].cc).to.equal(level.fragments[1].cc);
+    expect(level.fragments[1].cc).to.equal(level.fragments[2].cc);
+  });
+
+  it('treats distance as a regular fragment when algoDistanceEnabled is false', function () {
+    const level = M3U8Parser.parseLevelPlaylist(
+      playlist,
+      baseUrl,
+      0,
+      PlaylistLevelType.MAIN,
+      0,
+      null,
+      null, // algoSegmentPattern 也关掉
+      false,
+    );
+
+    expect(level.algoDistanceRelurl).to.equal(undefined);
+    // 关闭后 distance/algo_dat 都按普通分片处理：5 个 fragment
+    expect(level.fragments).to.have.lengthOf(5);
+  });
+
+  it('keeps the first distance and ignores duplicates', function () {
+    const dupPlaylist = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:10.000,
+main_0.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:0.001,
+main__algo_distance.ts?signature=AAA
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000,
+main_1.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:0.001,
+main__algo_distance.ts?signature=BBB
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000,
+main_2.ts
+#EXT-X-ENDLIST
+`;
+
+    const level = M3U8Parser.parseLevelPlaylist(
+      dupPlaylist,
+      baseUrl,
+      0,
+      PlaylistLevelType.MAIN,
+      0,
+      null,
+      /_dat\.ts$/i,
+      true,
+    );
+
+    expect(level.algoDistanceRelurl).to.equal(
+      'main__algo_distance.ts?signature=AAA',
+    );
+    expect(level.fragments).to.have.lengthOf(3);
+  });
+});
+
 function expectWithJSONMessage(value: any, msg?: string) {
   return expect(value, `${msg || 'actual:'} ${JSON.stringify(value, null, 2)}`);
 }

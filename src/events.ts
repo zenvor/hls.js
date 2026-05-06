@@ -2,6 +2,9 @@ import type {
   AlgoDataErrorData,
   AlgoDataLoadedData,
   AlgoDataLoadingData,
+  AlgoDistanceErrorData,
+  AlgoDistanceLoadedData,
+  AlgoDistanceLoadingData,
   AssetListLoadedData,
   AssetListLoadingData,
   AudioTrackLoadedData,
@@ -183,6 +186,12 @@ export enum Events {
   ALGO_DATA_LOADED = 'hlsAlgoDataLoaded',
   // fired when an algo data segment loading fails - data: { frag: fragment object, url: string, error: Error }
   ALGO_DATA_ERROR = 'hlsAlgoDataError',
+  // fired when the algo_distance metadata segment starts loading - data: { url: string }
+  ALGO_DISTANCE_LOADING = 'hlsAlgoDistanceLoading',
+  // fired when the algo_distance metadata segment finishes loading - data: { url: string, distance: AlgoDistanceData }
+  ALGO_DISTANCE_LOADED = 'hlsAlgoDistanceLoaded',
+  // fired when the algo_distance metadata segment loading fails - data: { url: string, error: Error }
+  ALGO_DISTANCE_ERROR = 'hlsAlgoDistanceError',
   // Identifier for a FPS drop event - data: { currentDropped, currentDecoded, totalDroppedFrames }
   FPS_DROP = 'hlsFpsDrop',
   // triggered when FPS drop triggers auto level capping - data: { level, droppedLevel }
@@ -439,6 +448,18 @@ export interface HlsListeners {
   [Events.ALGO_DATA_ERROR]: (
     event: Events.ALGO_DATA_ERROR,
     data: AlgoDataErrorData,
+  ) => void;
+  [Events.ALGO_DISTANCE_LOADING]: (
+    event: Events.ALGO_DISTANCE_LOADING,
+    data: AlgoDistanceLoadingData,
+  ) => void;
+  [Events.ALGO_DISTANCE_LOADED]: (
+    event: Events.ALGO_DISTANCE_LOADED,
+    data: AlgoDistanceLoadedData,
+  ) => void;
+  [Events.ALGO_DISTANCE_ERROR]: (
+    event: Events.ALGO_DISTANCE_ERROR,
+    data: AlgoDistanceErrorData,
   ) => void;
   [Events.FPS_DROP]: (event: Events.FPS_DROP, data: FPSDropData) => void;
   [Events.FPS_DROP_LEVEL_CAPPING]: (
