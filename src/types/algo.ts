@@ -77,8 +77,15 @@ export type AlgoFrameContext = {
  *   字段名敲定后将以非破坏方式补充命名字段，`raw` 始终保留。
  */
 export type AlgoDistanceData = {
-  /** 3x3 单应矩阵，row-major，长度恒为 9 */
-  matrix: number[];
-  /** 原始 MessagePack 解码结果，结构见 TODO */
-  raw: unknown[];
+  /**
+   * 3x3 单应矩阵，row-major，长度恒为 9。
+   * 加载成功后由 controller 用 `Object.freeze` 冻结，运行时尝试写入会静默失败
+   * 或在严格模式下抛错；类型声明为 readonly 数组以在编译期约束消费者。
+   */
+  readonly matrix: readonly number[];
+  /**
+   * 原始 MessagePack 解码结果，长度 ≥ 5（前向兼容算法侧后续追加字段），
+   * 结构见模块顶部 TODO。同样在加载成功后被冻结。
+   */
+  readonly raw: readonly unknown[];
 };

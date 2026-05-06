@@ -28,22 +28,37 @@ import type {
 } from '../types/loader';
 import type { NullableNetworkDetails } from '../types/network-details';
 
+type LoadStatus = 'idle' | 'loading' | 'loaded' | 'failed';
+
 /**
  * 加载/解码流级一次性 algo_distance.ts 元数据分片。
  *
  * 设计要点：
  * - 受 `config.algoDataEnabled` 控制，在 Hls 构造时与 AlgoDataController 一同启用。
  * - 监听 `MANIFEST_LOADING` 清空状态；监听 `LEVEL_LOADED / LEVEL_UPDATED` 探测
- *   `level.algoDistanceRelurl`，命中新路径才发起加载（OSS 签名 URL 的 query 部分
- *   会随刷新变化，按路径去重）。
+ *   `level.algoDistanceRelurl`，命中新路径才发起加载。去重键使用 absolute URL 的
+ *   pathname，剔除 OSS 签名等 query 不参与去重。
+ * - 状态机：`idle | loading | loaded | failed`。
+ *   - `loaded`：永久幂等跳过；
+ *   - `loading`：跳过新触发；
+ *   - `failed`：当看到新 `LevelDetails` 引用时允许新一轮重试（每轮自身仍受
+ *     `fragLoadPolicy.default` 的 retryConfig 上限约束），覆盖签名过期、临时网络
+ *     抖动等可恢复场景。
  * - 双轨 API：事件 ALGO_DISTANCE_LOADING/LOADED/ERROR + 同步 getter
  *   `getDistance / isReady`。事件不做幂等重放，新订阅者请用 getter 取快照。
+ *   返回的 `AlgoDistanceData` 及其 `matrix / raw` 在加载成功时 deep-freeze，
+ *   消费者修改不会影响内部缓存。
  */
 class AlgoDistanceController implements NetworkComponentAPI {
   private hls: Hls | null;
-  private currentLevelDetails: LevelDetails | null = null;
   private currentDistance: AlgoDistanceData | null = null;
+  /** 已处理过的去重键，由 absolute URL 的 pathname 派生 */
   private currentDistanceKey: string | null = null;
+  private loadStatus: LoadStatus = 'idle';
+  /** 失败时记录引发该次加载的 details 引用，用于在新 details 进来时放行重试 */
+  private lastFailedDetails: LevelDetails | null = null;
+  /** 当前 in-flight 加载所对应的 details 引用 */
+  private currentLoadDetails: LevelDetails | null = null;
   private currentLoader: Loader<LoaderContext> | null = null;
   private retryCount = 0;
   private retryTimer: number | null = null;
@@ -72,6 +87,7 @@ class AlgoDistanceController implements NetworkComponentAPI {
 
   /**
    * 同步获取已加载的测距元数据，未加载时返回 null。
+   * 返回对象已 deep-freeze，可直接读但不可写。
    */
   public getDistance(): AlgoDistanceData | null {
     return this.currentDistance;
@@ -103,12 +119,10 @@ class AlgoDistanceController implements NetworkComponentAPI {
   }
 
   private onLevelLoaded(event: Events.LEVEL_LOADED, data: LevelLoadedData) {
-    this.currentLevelDetails = data.details;
     this.maybeLoadDistance(data.details);
   }
 
   private onLevelUpdated(event: Events.LEVEL_UPDATED, data: LevelUpdatedData) {
-    this.currentLevelDetails = data.details;
     this.maybeLoadDistance(data.details);
   }
 
@@ -116,11 +130,6 @@ class AlgoDistanceController implements NetworkComponentAPI {
     if (!this.started || !this.hls) return;
     const relurl = details.algoDistanceRelurl;
     if (!relurl) return;
-    const key = this.getDistanceKey(relurl);
-    // 同一路径（成功/失败/在飞 任一状态）已处理过 → 跳过。
-    // 与 AlgoDataController 一致：MANIFEST 重新加载才允许重试，避免在
-    // playlist refresh 时反复打无效请求。
-    if (this.currentDistanceKey === key) return;
 
     const absoluteUrl = buildAbsoluteURL(details.url, relurl, {
       alwaysNormalize: true,
@@ -129,17 +138,37 @@ class AlgoDistanceController implements NetworkComponentAPI {
       this.reportError('', new Error('algo_distance 分片地址解析失败'));
       return;
     }
+    const key = this.deriveKey(absoluteUrl);
 
+    if (this.currentDistanceKey === key) {
+      // 同 key 已处理，按状态决定是否放行：
+      // - loaded / loading：跳过；
+      // - failed：仅当 details 引用变化（即又一次 playlist 解析）才允许重试。
+      if (this.loadStatus !== 'failed') return;
+      if (this.lastFailedDetails === details) return;
+    }
+
+    // 进入新一轮：取消任何 in-flight，重置计数与失败标记
     this.abortLoad();
     this.currentDistanceKey = key;
     this.currentDistance = null;
     this.retryCount = 0;
+    this.lastFailedDetails = null;
+    this.currentLoadDetails = details;
     this.startDistanceLoad(absoluteUrl);
   }
 
-  private getDistanceKey(relurl: string): string {
-    // OSS 签名 URL 的 query 部分会随刷新变化，按路径去重
-    return relurl.split(/[?#]/)[0];
+  /**
+   * 用 absolute URL 的 pathname 做去重键，剔除 query / hash。
+   * 这样 OSS 签名刷新（同路径不同 signature）不会触发重复请求；
+   * 多 level / 多 CDN 域名下同名子文件也能稳定识别。
+   */
+  private deriveKey(absoluteUrl: string): string {
+    try {
+      return new URL(absoluteUrl).pathname;
+    } catch {
+      return absoluteUrl.split(/[?#]/)[0];
+    }
   }
 
   private startDistanceLoad(url: string) {
@@ -148,6 +177,7 @@ class AlgoDistanceController implements NetworkComponentAPI {
     const loader = this.createLoader();
     const loaderConfig = this.createLoaderConfig();
     this.currentLoader = loader;
+    this.loadStatus = 'loading';
 
     const loadingData: AlgoDistanceLoadingData = { url };
     hls.trigger(Events.ALGO_DISTANCE_LOADING, loadingData);
@@ -169,6 +199,12 @@ class AlgoDistanceController implements NetworkComponentAPI {
   ): LoaderCallbacks<LoaderContext> {
     return {
       onSuccess: (response, stats, context, networkDetails) => {
+        // 世代守卫：abort/destroy/MANIFEST_LOADING 后到达的旧回调直接忽略，
+        // 避免污染当前缓存；自定义不规范 loader 也在此兜底。
+        if (!this.isCurrentGeneration(loader)) {
+          loader.destroy();
+          return;
+        }
         this.cleanupLoader(loader);
         this.handleLoaded(
           url,
@@ -178,6 +214,10 @@ class AlgoDistanceController implements NetworkComponentAPI {
         );
       },
       onError: (error, context, networkDetails, stats) => {
+        if (!this.isCurrentGeneration(loader)) {
+          loader.destroy();
+          return;
+        }
         this.cleanupLoader(loader);
         const response: LoaderResponse = {
           url: context.url,
@@ -186,6 +226,7 @@ class AlgoDistanceController implements NetworkComponentAPI {
         };
         const retried = this.retryLoad(url, false, response);
         if (retried) return;
+        this.markFailed();
         this.reportError(
           url,
           new Error(
@@ -196,9 +237,14 @@ class AlgoDistanceController implements NetworkComponentAPI {
         );
       },
       onTimeout: (stats, context, networkDetails) => {
+        if (!this.isCurrentGeneration(loader)) {
+          loader.destroy();
+          return;
+        }
         this.cleanupLoader(loader);
         const retried = this.retryLoad(url, true);
         if (retried) return;
+        this.markFailed();
         this.reportError(
           url,
           new Error(`algo_distance 分片加载超时 (${context.url})`),
@@ -207,6 +253,16 @@ class AlgoDistanceController implements NetworkComponentAPI {
         );
       },
     };
+  }
+
+  /** 当前 in-flight 才认是当代回调 */
+  private isCurrentGeneration(loader: Loader<LoaderContext>): boolean {
+    return this.started && this.hls !== null && this.currentLoader === loader;
+  }
+
+  private markFailed() {
+    this.loadStatus = 'failed';
+    this.lastFailedDetails = this.currentLoadDetails;
   }
 
   private handleLoaded(
@@ -222,11 +278,14 @@ class AlgoDistanceController implements NetworkComponentAPI {
     try {
       distance = this.parseDistance(payload);
     } catch (error) {
+      this.markFailed();
       this.reportError(url, error as Error, stats, networkDetails);
       return;
     }
 
     this.currentDistance = distance;
+    this.loadStatus = 'loaded';
+    this.lastFailedDetails = null;
     this.retryCount = 0;
     this.clearRetryTimer();
 
@@ -243,26 +302,31 @@ class AlgoDistanceController implements NetworkComponentAPI {
     const decoded = this.decodeMultiItems(payload);
     // 原始数据外层为 fixarray(5)，decodeMulti 在单顶层对象时返回 1 个元素
     const root = decoded.length === 1 ? decoded[0] : decoded;
+    // 严格期望 5 元，但放宽为 ">= 5" 以便算法侧未来扩展（新增字段不破坏旧消费者）。
+    // 多余字段会原样保留在 raw 里。
     if (!Array.isArray(root) || root.length < 5) {
       throw new Error('algo_distance 数据结构不正确（期望 fixarray(5)）');
     }
     const matrixRaw = root[3];
+    // 当前观察到服务端用 array 编码 9 个 float64；若未来切到 bin8 (Uint8Array)
+    // 编码 72 字节，这里会抛清晰错误，由算法侧/前端协商再扩展解析。
     if (!Array.isArray(matrixRaw) || matrixRaw.length !== 9) {
       throw new Error('algo_distance 矩阵长度不正确（期望 9 元素）');
     }
-    const matrix = matrixRaw.map((v) => Number(v) || 0);
-    return {
+    const matrix = Object.freeze(matrixRaw.map((v) => Number(v) || 0));
+    const raw = Object.freeze(root as unknown[]);
+    return Object.freeze({
       matrix,
-      raw: root as unknown[],
-    };
+      raw,
+    });
   }
 
+  /** v2.8 的 decodeMulti 返回 Generator；用 Array.from 物化成数组。 */
   private decodeMultiItems(payload: ArrayBuffer | Uint8Array): unknown[] {
     try {
       const input =
         payload instanceof Uint8Array ? payload : new Uint8Array(payload);
-      const result = decodeMulti(input);
-      return Array.isArray(result) ? result : Array.from(result);
+      return Array.from(decodeMulti(input));
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
       throw new Error(`algo_distance 数据解包失败: ${reason}`);
@@ -363,9 +427,11 @@ class AlgoDistanceController implements NetworkComponentAPI {
 
   private resetCache() {
     this.abortLoad();
-    this.currentLevelDetails = null;
     this.currentDistance = null;
     this.currentDistanceKey = null;
+    this.loadStatus = 'idle';
+    this.lastFailedDetails = null;
+    this.currentLoadDetails = null;
     this.retryCount = 0;
   }
 }

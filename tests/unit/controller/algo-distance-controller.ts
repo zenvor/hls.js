@@ -2,23 +2,48 @@ import { encode } from '@msgpack/msgpack';
 import { expect } from 'chai';
 import { hlsDefaultConfig } from '../../../src/config';
 import AlgoDistanceController from '../../../src/controller/algo-distance-controller';
+import { Events } from '../../../src/events';
 import { LevelDetails } from '../../../src/loader/level-details';
 import type { AlgoDistanceData } from '../../../src/types/algo';
 
 describe('AlgoDistanceController', function () {
-  function createController(triggerCalls?: Array<[string, any]>) {
-    const config = {
+  function createHls(triggerCalls?: Array<[string, any]>) {
+    // 完整模拟 hls.on/off/trigger 的 context 绑定语义，让真实 controller 监听器
+    // 在 trigger 时拿到正确的 this。
+    const listeners = new Map<string, Array<{ fn: any; ctx: any }>>();
+    const config: any = {
       ...hlsDefaultConfig,
     };
-    const hls = {
+    const hls: any = {
       config,
-      on: () => {},
-      off: () => {},
+      logger: { warn: () => {} },
+      on: (event: string, fn: any, ctx?: any) => {
+        if (!listeners.has(event)) listeners.set(event, []);
+        listeners.get(event)!.push({ fn, ctx });
+      },
+      off: (event: string, fn: any, ctx?: any) => {
+        const arr = listeners.get(event);
+        if (!arr) return;
+        for (let i = 0; i < arr.length; i++) {
+          if (arr[i].fn === fn && arr[i].ctx === ctx) {
+            arr.splice(i, 1);
+            break;
+          }
+        }
+      },
       trigger: (event: string, data: any) => {
         triggerCalls?.push([event, data]);
+        const arr = listeners.get(event);
+        if (!arr) return;
+        // 复制一份避免回调期间监听集合被修改
+        [...arr].forEach(({ fn, ctx }) => fn.call(ctx, event, data));
       },
-      logger: { warn: () => {} },
-    } as any;
+    };
+    return { hls };
+  }
+
+  function createController(triggerCalls?: Array<[string, any]>) {
+    const { hls } = createHls(triggerCalls);
     return new AlgoDistanceController(hls);
   }
 
@@ -98,14 +123,38 @@ describe('AlgoDistanceController', function () {
       );
 
       expect(result.matrix).to.have.lengthOf(9);
-      expect(result.matrix).to.deep.equal([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+      expect([...result.matrix]).to.deep.equal([1, 2, 3, 4, 5, 6, 7, 8, 9]);
       expect(result.raw).to.have.lengthOf(5);
       expect(result.raw[0]).to.equal(1);
       expect(result.raw[1]).to.equal(false);
       expect(result.raw[2]).to.equal(true);
     });
 
-    it('throws when root is not fixarray(5)', function () {
+    it('freezes the returned data and its inner arrays', function () {
+      const controller = createController();
+      const payload = buildPayload({ matrix: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+      const result: AlgoDistanceData = (controller as any).parseDistance(
+        payload,
+      );
+
+      expect(Object.isFrozen(result)).to.equal(true);
+      expect(Object.isFrozen(result.matrix)).to.equal(true);
+      expect(Object.isFrozen(result.raw)).to.equal(true);
+    });
+
+    it('accepts trailing fields beyond fixarray(5) for forward compatibility', function () {
+      const controller = createController();
+      const payload = buildPayload({ extra: ['future-field', 42] });
+
+      const result: AlgoDistanceData = (controller as any).parseDistance(
+        payload,
+      );
+
+      expect(result.matrix).to.have.lengthOf(9);
+      expect(result.raw.length).to.be.greaterThanOrEqual(5);
+    });
+
+    it('throws when root is shorter than fixarray(5)', function () {
       const controller = createController();
       const payload = toArrayBuffer(encode([1, false, true])); // length 3
 
@@ -117,6 +166,19 @@ describe('AlgoDistanceController', function () {
     it('throws when matrix length is not 9', function () {
       const controller = createController();
       const payload = buildPayload({ matrix: [0, 0, 0] });
+
+      expect(() => (controller as any).parseDistance(payload)).to.throw(
+        /矩阵长度不正确/,
+      );
+    });
+
+    it('throws when matrix is encoded as Uint8Array (bin8) instead of array', function () {
+      // 当前合约要求 array 编码 9 个 number；若服务端切到 bin8 应抛清晰错误，
+      // 由协商后再扩展。
+      const controller = createController();
+      const matrixBytes = new Uint8Array(72); // 9 * 8 bytes float64
+      const root = [1, false, true, matrixBytes, [0]];
+      const payload = toArrayBuffer(encode(root));
 
       expect(() => (controller as any).parseDistance(payload)).to.throw(
         /矩阵长度不正确/,
@@ -140,13 +202,15 @@ describe('AlgoDistanceController', function () {
         matrix: [],
         raw: [],
       };
-      (controller as any).currentDistanceKey = 'foo';
+      (controller as any).currentDistanceKey = '/foo';
+      (controller as any).loadStatus = 'loaded';
       (controller as any).retryCount = 3;
 
       (controller as any).onManifestLoading();
 
       expect(controller.getDistance()).to.equal(null);
       expect((controller as any).currentDistanceKey).to.equal(null);
+      expect((controller as any).loadStatus).to.equal('idle');
       expect((controller as any).retryCount).to.equal(0);
     });
 
@@ -161,15 +225,27 @@ describe('AlgoDistanceController', function () {
       expect((controller as any).currentLoader).to.equal(null);
     });
 
-    it('dedupes loads with the same path even when query string changes', function () {
-      const triggers: Array<[string, any]> = [];
-      const controller = createController(triggers);
+    it('uses absolute pathname as the dedup key', function () {
+      const controller = createController();
       (controller as any).started = true;
+      (controller as any).startDistanceLoad = () => {};
 
-      // Stub startDistanceLoad to avoid creating a real loader
+      const details = new LevelDetails('http://cdn.example.com/sv/level.m3u8');
+      details.algoDistanceRelurl = 'algo_distance.ts?signature=AAA';
+      (controller as any).maybeLoadDistance(details);
+
+      expect((controller as any).currentDistanceKey).to.equal(
+        '/sv/algo_distance.ts',
+      );
+    });
+
+    it('dedupes loads with the same path even when query string changes', function () {
+      const controller = createController();
+      (controller as any).started = true;
       const startedUrls: string[] = [];
       (controller as any).startDistanceLoad = (url: string) => {
         startedUrls.push(url);
+        (controller as any).loadStatus = 'loading';
       };
 
       const detailsA = new LevelDetails('http://example.com/level.m3u8');
@@ -182,7 +258,7 @@ describe('AlgoDistanceController', function () {
 
       expect(startedUrls).to.have.lengthOf(1);
       expect((controller as any).currentDistanceKey).to.equal(
-        'sub/algo_distance.ts',
+        '/sub/algo_distance.ts',
       );
     });
 
@@ -192,6 +268,7 @@ describe('AlgoDistanceController', function () {
       const startedUrls: string[] = [];
       (controller as any).startDistanceLoad = (url: string) => {
         startedUrls.push(url);
+        (controller as any).loadStatus = 'loading';
       };
 
       const detailsA = new LevelDetails('http://example.com/a/level.m3u8');
@@ -204,7 +281,7 @@ describe('AlgoDistanceController', function () {
 
       expect(startedUrls).to.have.lengthOf(2);
       expect((controller as any).currentDistanceKey).to.equal(
-        'other_distance.ts',
+        '/b/other_distance.ts',
       );
     });
 
@@ -220,6 +297,123 @@ describe('AlgoDistanceController', function () {
       (controller as any).maybeLoadDistance(details);
 
       expect(startedUrls).to.have.lengthOf(0);
+    });
+
+    it('skips when loaded; allows retry on failed when details reference changes', function () {
+      const controller = createController();
+      (controller as any).started = true;
+      const startedUrls: string[] = [];
+      (controller as any).startDistanceLoad = (url: string) => {
+        startedUrls.push(url);
+      };
+
+      const detailsA = new LevelDetails('http://example.com/level.m3u8');
+      detailsA.algoDistanceRelurl = 'algo_distance.ts';
+
+      // 第一次加载：触发
+      (controller as any).maybeLoadDistance(detailsA);
+      expect(startedUrls).to.have.lengthOf(1);
+
+      // 标记成功后再次同 key：跳过
+      (controller as any).loadStatus = 'loaded';
+      (controller as any).maybeLoadDistance(detailsA);
+      expect(startedUrls).to.have.lengthOf(1);
+
+      // 切到失败，同 details 引用：仍跳过
+      (controller as any).loadStatus = 'failed';
+      (controller as any).lastFailedDetails = detailsA;
+      (controller as any).maybeLoadDistance(detailsA);
+      expect(startedUrls).to.have.lengthOf(1);
+
+      // 失败 + 新 details 引用（同 path）：放行重试
+      const detailsB = new LevelDetails('http://example.com/level.m3u8');
+      detailsB.algoDistanceRelurl = 'algo_distance.ts?refreshed=1';
+      (controller as any).maybeLoadDistance(detailsB);
+      expect(startedUrls).to.have.lengthOf(2);
+    });
+  });
+
+  describe('integration via Hls events', function () {
+    it('triggers LOADING and LOADED through the full chain on success', function () {
+      const triggers: Array<[string, any]> = [];
+      const { hls } = createHls(triggers);
+      const controller = new AlgoDistanceController(hls);
+      (controller as any).started = true;
+
+      // 用桩 loader 直接走 onSuccess 路径
+      const fakeLoader: any = {
+        load: (context: any, _config: any, callbacks: any) => {
+          callbacks.onSuccess(
+            { url: context.url, data: buildPayload() },
+            {} as any,
+            context,
+            null,
+          );
+        },
+        abort: () => {},
+        destroy: () => {},
+      };
+      (controller as any).createLoader = () => fakeLoader;
+
+      const details = new LevelDetails('http://example.com/sv/level.m3u8');
+      details.algoDistanceRelurl = 'algo_distance.ts?signature=AAA';
+
+      // 触发 LEVEL_LOADED 走完整链路（走真实的 on/off/trigger 分发）
+      hls.trigger(Events.LEVEL_LOADED, { details, level: 0 });
+
+      const eventNames = triggers.map(([name]) => name);
+      expect(eventNames).to.include(Events.ALGO_DISTANCE_LOADING);
+      expect(eventNames).to.include(Events.ALGO_DISTANCE_LOADED);
+      expect(controller.isReady()).to.equal(true);
+      expect(controller.getDistance()?.matrix).to.have.lengthOf(9);
+      expect((controller as any).loadStatus).to.equal('loaded');
+    });
+
+    it('discards stale loader callbacks after MANIFEST_LOADING reset', function () {
+      const triggers: Array<[string, any]> = [];
+      const { hls } = createHls(triggers);
+      const controller = new AlgoDistanceController(hls);
+      (controller as any).started = true;
+
+      // 桩 loader：捕获 callbacks 但延迟到外部触发；不立即调用 onSuccess
+      let capturedCallbacks: any = null;
+      let capturedContext: any = null;
+      const fakeLoader: any = {
+        load: (context: any, _config: any, callbacks: any) => {
+          capturedContext = context;
+          capturedCallbacks = callbacks;
+        },
+        abort: () => {},
+        destroy: () => {},
+      };
+      (controller as any).createLoader = () => fakeLoader;
+
+      const details = new LevelDetails('http://example.com/sv/level.m3u8');
+      details.algoDistanceRelurl = 'algo_distance.ts';
+
+      // 启动加载
+      hls.trigger(Events.LEVEL_LOADED, { details, level: 0 });
+      expect(capturedCallbacks).to.not.equal(null);
+
+      // MANIFEST_LOADING 重置 → abortLoad 把 currentLoader 置 null
+      hls.trigger(Events.MANIFEST_LOADING, {});
+      expect(controller.isReady()).to.equal(false);
+
+      // 旧回调延迟触发：世代守卫应丢弃它，不污染缓存、不再发 LOADED 事件
+      const beforeLoadedCount = triggers.filter(
+        ([name]) => name === Events.ALGO_DISTANCE_LOADED,
+      ).length;
+      capturedCallbacks.onSuccess(
+        { url: capturedContext.url, data: buildPayload() },
+        {} as any,
+        capturedContext,
+        null,
+      );
+      const afterLoadedCount = triggers.filter(
+        ([name]) => name === Events.ALGO_DISTANCE_LOADED,
+      ).length;
+      expect(afterLoadedCount).to.equal(beforeLoadedCount);
+      expect(controller.isReady()).to.equal(false);
     });
   });
 });

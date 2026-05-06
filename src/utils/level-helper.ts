@@ -155,6 +155,12 @@ export function mergeDetails(
   if (oldDetails === newDetails) {
     return;
   }
+  // 流级 algo_distance 元数据在 LIVE 滑动窗口 / delta playlist 下可能从新 playlist
+  // 中消失（被裁出窗口），但其语义对整流仍然有效。这里把旧的 relurl 透传到新 details，
+  // AlgoDistanceController 按 absolute path 去重，重复见到同一个 relurl 是幂等的。
+  if (!newDetails.algoDistanceRelurl && oldDetails.algoDistanceRelurl) {
+    newDetails.algoDistanceRelurl = oldDetails.algoDistanceRelurl;
+  }
   // Track the last initSegment processed. Initialize it to the last one on the timeline.
   let currentInitSegment: Fragment | null = null;
   const oldFragments = oldDetails.fragments;

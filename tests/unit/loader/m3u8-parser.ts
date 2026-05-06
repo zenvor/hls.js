@@ -3347,6 +3347,96 @@ main_2.ts
     expect(level.fragments).to.have.lengthOf(5);
   });
 
+  it('prioritizes distance recognition over algoSegmentPattern when both could match', function () {
+    // 模拟用户错把 distance 后缀也并入 algoSegmentPattern 的极端配置：
+    // distance 分支应早于 _dat 分支命中，且 prevFrag.algoRelurl 不应被写入。
+    const level = M3U8Parser.parseLevelPlaylist(
+      playlist,
+      baseUrl,
+      0,
+      PlaylistLevelType.MAIN,
+      0,
+      null,
+      /algo_distance\.ts$|_dat\.ts$/i,
+      true,
+    );
+
+    expect(level.algoDistanceRelurl).to.equal(
+      'main__algo_distance.ts?security-token=AAA',
+    );
+    // 第一个视频分片不应被错挂 distance 的 relurl 作为算法相对路径
+    expect(level.fragments[0].algoRelurl).to.equal(undefined);
+    // 第二个视频分片仍能正常被 _dat 命中并挂上 algoRelurl
+    expect(level.fragments[1].algoRelurl).to.equal('main__algo_1_dat.ts');
+  });
+
+  it('handles distance segment at the very start without a leading D', function () {
+    // 整流以 distance 开头（无前导 D 也无前置视频），不应回退 cc 也不应吞掉真实 D
+    const startWithDistance = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:0.001,
+main__algo_distance.ts
+#EXTINF:10.000,
+main_0.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000,
+main_1.ts
+#EXT-X-ENDLIST
+`;
+    const level = M3U8Parser.parseLevelPlaylist(
+      startWithDistance,
+      baseUrl,
+      0,
+      PlaylistLevelType.MAIN,
+      0,
+      null,
+      /_dat\.ts$/i,
+      true,
+    );
+
+    expect(level.algoDistanceRelurl).to.equal('main__algo_distance.ts');
+    expect(level.fragments).to.have.lengthOf(2);
+    // main_0 起始 cc 应为 0（没被无前导 D 的 distance 错误回退）
+    expect(level.fragments[0].cc).to.equal(0);
+    // 中间真实的 D 仍应让 cc 正常 +1
+    expect(level.fragments[1].cc).to.equal(1);
+  });
+
+  it('does not swallow downstream discontinuities when distance has no leading D', function () {
+    // distance 之后紧跟 D + 视频：尾随 D 是真实不连续点，不能被误吞
+    const distanceFirstWithTrailingD = `#EXTM3U
+#EXT-X-VERSION:3
+#EXT-X-TARGETDURATION:10
+#EXT-X-MEDIA-SEQUENCE:0
+#EXTINF:0.001,
+main__algo_distance.ts
+#EXT-X-DISCONTINUITY
+#EXTINF:10.000,
+main_0.ts
+#EXTINF:10.000,
+main_1.ts
+#EXT-X-ENDLIST
+`;
+    const level = M3U8Parser.parseLevelPlaylist(
+      distanceFirstWithTrailingD,
+      baseUrl,
+      0,
+      PlaylistLevelType.MAIN,
+      0,
+      null,
+      /_dat\.ts$/i,
+      true,
+    );
+
+    expect(level.algoDistanceRelurl).to.equal('main__algo_distance.ts');
+    expect(level.fragments).to.have.lengthOf(2);
+    // 尾随的真实 D 仍应让 main_0 的 cc 为 1
+    expect(level.fragments[0].cc).to.equal(1);
+    expect(level.fragments[1].cc).to.equal(1);
+  });
+
   it('keeps the first distance and ignores duplicates', function () {
     const dupPlaylist = `#EXTM3U
 #EXT-X-VERSION:3
