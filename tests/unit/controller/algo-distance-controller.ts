@@ -190,6 +190,25 @@ describe('AlgoDistanceController', function () {
       );
     });
 
+    it('throws when matrix contains non-number or non-finite values', function () {
+      // 三类语义异常都必须显式抛错，而非静默归零：
+      //   - 非数字字符串 'oops'：违反 number 类型契约
+      //   - null：msgpack nil 类型，不是 number
+      //   - NaN：number 但非有限值
+      // 否则与全零 placeholder 矩阵在外观上无法区分，距离计算会悄然失效。
+      const badValues: unknown[] = ['oops', null, NaN];
+      badValues.forEach((bad) => {
+        const controller = createController();
+        const root = [1, false, true, [1, 2, 3, 4, 5, 6, 7, 8, bad], [0]];
+        const payload = toArrayBuffer(encode(root));
+
+        expect(
+          () => (controller as any).parseDistance(payload),
+          `bad value ${String(bad)} should throw`,
+        ).to.throw(/矩阵包含非法值/);
+      });
+    });
+
     it('throws when payload is not a valid msgpack stream', function () {
       const controller = createController();
       const payload = toArrayBuffer(new Uint8Array([0xc1, 0xc1, 0xc1, 0xc1]));

@@ -321,7 +321,18 @@ class AlgoDistanceController implements NetworkComponentAPI {
     if (!Array.isArray(matrixRaw) || matrixRaw.length !== 9) {
       throw new Error('algo_distance 矩阵长度不正确（期望 9 元素）');
     }
-    const matrix = matrixRaw.map((v) => Number(v) || 0);
+    // 严格按 msgpack 合约（9 个 float64）校验每个元素：必须是真实 number 且
+    // 有限。非数字类型（null/bool/BigInt/string）以及 NaN/Infinity 都视为
+    // 协议异常，不可静默归零——否则与 placeholder 全零矩阵在外观上无法区分，
+    // 会让算法距离计算静默失效，难以排查。
+    const matrix = matrixRaw.map((v) => {
+      if (typeof v !== 'number' || !Number.isFinite(v)) {
+        throw new Error(
+          `algo_distance 矩阵包含非法值（期望有限 number）：${String(v)}`,
+        );
+      }
+      return v;
+    });
     const raw = root as unknown[];
     // deep-freeze：包含 raw 顶层、raw[3]（矩阵源数组）、raw[4]（meta 数组）等
     // 所有嵌套数组/对象，确保消费者无法通过 `data.raw[4][0] = ...` 之类污染缓存。
