@@ -49,6 +49,7 @@ class AlgoDataController implements NetworkComponentAPI {
   private algoChunkFailed = new Set<number>();
   private algoChunkRetryCount = new Map<number, number>();
   private algoChunkRetryTimer = new Map<number, number>();
+  private invalidFrameTimeWarned = new Set<string>();
   private started = false;
 
   constructor(hls: Hls) {
@@ -135,7 +136,7 @@ class AlgoDataController implements NetworkComponentAPI {
     }
     const localTime = time - frag.start;
     const validFrameCount = this.getValidFrameCount(chunk);
-    if (validFrameCount <= 0 || localTime < 0) {
+    if (validFrameCount <= 0 || !Number.isFinite(localTime) || localTime < 0) {
       return null;
     }
 
@@ -161,9 +162,6 @@ class AlgoDataController implements NetworkComponentAPI {
         return null;
       }
       const rawIndex = Math.floor(localTime * chunk.frameRate + 1e-6);
-      if (rawIndex < 0) {
-        return null;
-      }
       // idx 越界处理：
       //   - fallbackEnabled=false：返回 null，保留原行为，不影响未启用 fallback 的消费者
       //   - fallbackEnabled=true：clamp 到 vfc-1 + 标记 fallback。覆盖以下两类场景：
@@ -750,19 +748,13 @@ class AlgoDataController implements NetworkComponentAPI {
 
     this.checkFrameSequence(message.frames, message.chunkIndex, logger);
 
-    const validFrameCount = this.resolveValidFrameCount(
-      message.frameSize,
-      message.frames.length,
-    );
     const configFrameRate = hls?.config.algoFrameRate;
-    const frameRate =
-      Number.isFinite(configFrameRate) && configFrameRate! > 0
-        ? (configFrameRate as number)
-        : Number.isFinite(message.frameRate) && message.frameRate! > 0
-          ? (message.frameRate as number)
-          : frag.duration > 0
-            ? validFrameCount / frag.duration
-            : 0;
+    const frameRate = this.resolveAlgoFrameRate(
+      configFrameRate,
+      message.frameRate,
+      message.chunkIndex,
+      logger,
+    );
 
     return {
       fragSn: typeof frag.sn === 'number' ? frag.sn : -1,
@@ -770,6 +762,7 @@ class AlgoDataController implements NetworkComponentAPI {
       chunkIndex: message.chunkIndex,
       frameSize: message.frameSize,
       frameRate,
+      // Algo frameIdx is 1-based. Keep 1 as the fallback for legacy chunks.
       startFrameIndex: message.frames[0]?.frameIdx ?? 1,
       frames: message.frames,
     };
@@ -834,6 +827,37 @@ class AlgoDataController implements NetworkComponentAPI {
     };
   }
 
+  private resolveAlgoFrameRate(
+    configFrameRate: number | undefined,
+    messageFrameRate: number | undefined,
+    chunkIndex: number,
+    logger?: { warn: (msg: string) => void },
+  ): number {
+    const hasConfigFrameRate =
+      Number.isFinite(configFrameRate) && configFrameRate! > 0;
+    const hasMessageFrameRate =
+      Number.isFinite(messageFrameRate) && messageFrameRate! > 0;
+    if (hasConfigFrameRate && hasMessageFrameRate) {
+      const mismatch = Math.abs(configFrameRate! - messageFrameRate!) > 1e-6;
+      if (mismatch) {
+        logger?.warn(
+          `[AlgoData] algoFrameRate=${configFrameRate} overrides message.frameRate=${messageFrameRate}, chunkIndex=${chunkIndex}`,
+        );
+      }
+    }
+    if (hasConfigFrameRate) {
+      return configFrameRate!;
+    }
+    if (hasMessageFrameRate) {
+      return messageFrameRate!;
+    }
+    logger?.warn(
+      `[AlgoData] Missing algo frameRate source, chunkIndex=${chunkIndex}. Configure hls.config.algoFrameRate or include message.frameRate.`,
+    );
+    // Keep the chunk usable for frameTime-based lookup; frameRate lookup will return null.
+    return 0;
+  }
+
   private getValidFrameTimes(
     chunk: AlgoChunk,
     validFrameCount: number,
@@ -848,12 +872,19 @@ class AlgoDataController implements NetworkComponentAPI {
     for (let i = 0; i < validFrameCount; i += 1) {
       const frameTime = this.getFrameTime(chunk.frames[i]);
       if (frameTime === null) {
+        this.warnInvalidFrameTime(chunk, i, 'missing or invalid');
         return null;
       }
       if (i === 0 && Math.abs(frameTime) > timeTolerance) {
+        this.warnInvalidFrameTime(chunk, i, `first frameTime=${frameTime}`);
         return null;
       }
       if (i > 0 && frameTime <= previousFrameTime) {
+        this.warnInvalidFrameTime(
+          chunk,
+          i,
+          `frameTime=${frameTime} previous=${previousFrameTime}`,
+        );
         return null;
       }
       frameTimes.push(frameTime);
@@ -872,6 +903,21 @@ class AlgoDataController implements NetworkComponentAPI {
     return Number.isFinite(frameTime) && frameTime >= 0 ? frameTime : null;
   }
 
+  private warnInvalidFrameTime(
+    chunk: AlgoChunk,
+    frameIndex: number,
+    reason: string,
+  ) {
+    const key = `${chunk.fragSn}:${chunk.chunkIndex}`;
+    if (this.invalidFrameTimeWarned.has(key)) {
+      return;
+    }
+    this.invalidFrameTimeWarned.add(key);
+    this.hls?.logger?.warn(
+      `[AlgoData] Invalid frameTime sequence, fallback to frameRate indexing, fragSn=${chunk.fragSn} chunkIndex=${chunk.chunkIndex} frameIndex=${frameIndex}: ${reason}`,
+    );
+  }
+
   private deriveLastFrameDuration(
     frameTimes: number[],
     frameRate: number,
@@ -880,6 +926,7 @@ class AlgoDataController implements NetworkComponentAPI {
     if (lastIndex > 0) {
       return frameTimes[lastIndex] - frameTimes[lastIndex - 1];
     }
+    // Current frameTime lookup passes at least 2 frames; keep this guard for future callers.
     return Number.isFinite(frameRate) && frameRate > 0 ? 1 / frameRate : 0;
   }
 
@@ -1068,6 +1115,7 @@ class AlgoDataController implements NetworkComponentAPI {
     this.algoChunkCache.clear();
     this.algoChunkFailed.clear();
     this.algoChunkRetryCount.clear();
+    this.invalidFrameTimeWarned.clear();
   }
 
   private getLevelDetails(): LevelDetails | null {

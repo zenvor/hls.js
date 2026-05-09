@@ -40,12 +40,13 @@ describe('AlgoDataController', function () {
       algoFrameRate: configFrameRate,
       algoBoundaryFallbackEnabled: configBoundaryFallback ?? false,
     };
+    const warnings: string[] = [];
     const hls = {
       config,
       on: () => {},
       off: () => {},
       trigger: () => {},
-      logger: { warn: () => {} },
+      logger: { warn: (message: string) => warnings.push(message) },
     } as any;
     const controller = new AlgoDataController(hls);
 
@@ -98,7 +99,7 @@ describe('AlgoDataController', function () {
     (controller as any).currentLevelDetails = levelDetails;
     (controller as any).algoChunkCache.set(1, chunk);
 
-    return { controller, frames, chunk, frag };
+    return { controller, frames, chunk, frag, warnings };
   }
 
   describe('getFrameByTime', function () {
@@ -293,8 +294,8 @@ describe('AlgoDataController', function () {
       expect(outOfRangeFrame).to.equal(null);
     });
 
-    it('should derive fallback frame rate from valid frame count', function () {
-      const { controller, frames, frag } = createControllerWithChunk({
+    it('should not derive fallback frame rate from frag duration', function () {
+      const { controller, frames, frag, warnings } = createControllerWithChunk({
         fragDuration: 2,
         frameSize: 10,
         frameCount: 100,
@@ -307,7 +308,33 @@ describe('AlgoDataController', function () {
         frames,
       });
 
-      expect(chunk.frameRate).to.equal(5);
+      expect(chunk.frameRate).to.equal(0);
+      expect(
+        warnings.some((message) =>
+          message.includes('Missing algo frameRate source'),
+        ),
+      ).to.equal(true);
+    });
+
+    it('should warn when config frameRate overrides message frameRate', function () {
+      const { controller, frames, frag, warnings } = createControllerWithChunk({
+        configFrameRate: 50,
+      });
+
+      const chunk = (controller as any).buildAlgoChunk(frag, 'algo-url', {
+        version: 1,
+        chunkIndex: 1,
+        frameSize: 10,
+        frameRate: 25,
+        frames,
+      });
+
+      expect(chunk.frameRate).to.equal(50);
+      expect(
+        warnings.some((message) =>
+          message.includes('algoFrameRate=50 overrides message.frameRate=25'),
+        ),
+      ).to.equal(true);
     });
 
     it('should not treat root-level Uint8Array as the frames array in 5-value payloads', function () {

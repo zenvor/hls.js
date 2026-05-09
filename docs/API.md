@@ -1223,7 +1223,7 @@ Maximum number of algo chunks kept in memory. Oldest chunks are evicted (LRU) wh
 
 (default: `undefined`)
 
-Override the algorithm frame rate when parsing algo chunks. When omitted, `frameRate` is derived from `frameSize / frag.duration`.
+Override the algorithm frame rate when parsing algo chunks. When omitted, hls.js uses the `frameRate` declared by the algo message. If neither source is available, time lookup can only use `autoCameras.reserved[0]` frameTime; it will not derive a frame rate from `frag.duration`, because algo sidecar fragments can make media fragment durations unreliable.
 
 ### `loader`
 
@@ -2173,7 +2173,7 @@ These methods are available when algo data loading is enabled (`algoDataEnabled 
 
 ### `hls.getAlgoFrameContextByTime(time: number)`
 
-- get: Returns an `AlgoFrameContext` describing the frame at the given playback time in seconds, including the owning chunk, the source media fragment, the 0-based `localFrameIndex` within the chunk, the chunk `frameRate`, the valid `frameSize` (capped by both the server-declared size and the actually decoded frame count), the resolved `mediaTime` / `localTime`, and optional `frameTime` when the matched algo frame supplies a per-fragment time anchor in `autoCameras.reserved[0]`. `frameTime` is undefined when lookup falls back to frameRate-based indexing. Returns `null` when not available.
+- get: Returns an `AlgoFrameContext` describing the frame at the given playback time in seconds, including the owning chunk, the source media fragment, the 0-based `localFrameIndex` within the chunk, the chunk `frameRate`, the valid `frameSize` (capped by both the server-declared size and the actually decoded frame count), the resolved `mediaTime` / `localTime`, and optional `frameTime` when the matched algo frame supplies a per-fragment time anchor in `autoCameras.reserved[0]`. `frameTime` is undefined when lookup falls back to frameRate-based indexing. Valid frameTime sequences must start near zero and increase strictly; invalid sequences fall back to frameRate-based indexing. Returns `null` when not available.
 
 ### `hls.getAlgoFrameByIndex(frameIdx: number)`
 
