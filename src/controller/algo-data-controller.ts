@@ -102,7 +102,30 @@ class AlgoDataController implements NetworkComponentAPI {
     if (!levelDetails || !Number.isFinite(time)) {
       return null;
     }
-    const frag = this.findFragmentByTime(levelDetails, time);
+
+    const fallbackEnabled =
+      this.hls?.config.algoBoundaryFallbackEnabled === true;
+    let frag = this.findFragmentByTime(levelDetails, time);
+    let isFallback = false;
+
+    // PTS 缝隙兜底（仅在 algoBoundaryFallbackEnabled=true 时启用）：
+    // 带算法旁路片(*_algo_N_dat.ts)的 m3u8 会让 hls.js 通过下一片 startPTS 反推
+    // 当前片 duration（level-helper.ts:updateFromToPTS），导致前片真实视频帧 PTS 末尾
+    // (~9.98s) 与下一片 startPTS(~10.628s) 之间存在 ~0.65s 缝隙。这段缝隙内
+    // findFragmentByTime 配合 maxFragLookUpTolerance 有两种可能行为：
+    //   ① 仍返回前片(frag.duration 被拉长，eager match 命中)——主路径走到底，rawIndex
+    //      会 >= validFrameCount（落在 9.98 ~ frag.duration 之间）
+    //   ② 已切到下一片(tolerance 提前吸过来)——time < nextFrag.start
+    //   ③ 两片都 miss tolerance——frag 返回 null
+    // ②③ 在下面"前片查找"分支处理；① 在后面"rawIndex 越界 clamp"分支处理。
+    if (fallbackEnabled && (!frag || time < frag.start)) {
+      const candidate = this.findFallbackFragForTime(levelDetails, time);
+      if (candidate) {
+        frag = candidate;
+        isFallback = true;
+      }
+    }
+
     if (!frag || time < frag.start) {
       return null;
     }
@@ -111,16 +134,30 @@ class AlgoDataController implements NetworkComponentAPI {
       return null;
     }
     const localTime = time - frag.start;
-    const localFrameIndex = Math.floor(localTime * chunk.frameRate + 1e-6);
+    const rawIndex = Math.floor(localTime * chunk.frameRate + 1e-6);
     const validFrameCount = this.getValidFrameCount(chunk);
-    if (localFrameIndex < 0 || localFrameIndex >= validFrameCount) {
+    if (rawIndex < 0) {
       return null;
+    }
+    // idx 越界处理：
+    //   - fallbackEnabled=false：返回 null，保留原行为，不影响未启用 fallback 的消费者
+    //   - fallbackEnabled=true：clamp 到 vfc-1 + 标记 fallback。覆盖以下两类场景：
+    //     (a) findFragmentByTime 因 frag.duration 被拉长而仍返回前片，但 time 已超过
+    //         前片真实视频帧覆盖范围（idx ≥ vfc）→ 沿用末帧 algo 至 frag 边界
+    //     (b) 已经走前片 fallback 分支（isFallback=true），主路径再次 idx 越界
+    let localFrameIndex = rawIndex;
+    if (rawIndex >= validFrameCount) {
+      if (!fallbackEnabled) {
+        return null;
+      }
+      localFrameIndex = validFrameCount - 1;
+      isFallback = true;
     }
     const frame = chunk.frames[localFrameIndex];
     if (!frame) {
       return null;
     }
-    return {
+    const context: AlgoFrameContext = {
       frame,
       chunk,
       frag,
@@ -132,6 +169,10 @@ class AlgoDataController implements NetworkComponentAPI {
       mediaTime: time,
       localTime,
     };
+    if (isFallback) {
+      context.fallback = true;
+    }
+    return context;
   }
 
   public isDataReadyByIndex(frameIdx: number): boolean {
@@ -765,6 +806,56 @@ class AlgoDataController implements NetworkComponentAPI {
     const fragments = levelDetails.fragments.filter(Boolean) as MediaFragment[];
     const maxFragLookUpTolerance = this.hls?.config.maxFragLookUpTolerance ?? 0;
     return findFragmentByPTS(null, fragments, time, maxFragLookUpTolerance);
+  }
+
+  /**
+   * 边界 fallback 专用查找：从右向左扫，找时间上紧接 `time` 之前的最近一片，
+   * 按它的角色决定是否返回：
+   *   - 有 chunk → 直接返回（最常见路径）
+   *   - 无 chunk 且 duration 是有限正数且极短（在
+   *     `(0, FAKE_SEGMENT_DURATION_THRESHOLD]` 内）→ 视为算法旁路伪片
+   *     (*_algo_N_dat.ts，EXTINF=0.001)，跳过继续往前找
+   *   - **其他所有"无 chunk"情况**（duration 异常如 NaN/Infinity/0/负数，或 duration
+   *     正常但不像伪片）→ **立即返回 null 阻断扩散**——避免把更旧视频片的算法数据顶
+   *     到当前画面上，造成比黑窗更隐蔽的语义错位。原则："宁可黑窗，不跨真实片错配"。
+   *
+   * 不依赖 findFragmentByTime 的 tolerance 行为——后者在两片 PTS 缝隙
+   * (prev.real_end < time < next.start) 处可能返回 next 或 null，都不是我们要的。
+   *
+   * 关于伪片阈值：算法旁路片 EXTINF=0.001s，正常视频片 ~10s，差 4 个数量级。
+   * 0.1s 阈值远小于任何真实视频片（含 LL-HLS part 的 0.2s+），又能稳定识别旁路片。
+   * 即使 hls.js 的 PTS 校正把伪片 duration 略微放大，仍远低于阈值。
+   *
+   * VOD：fragments 数组按 start 单调递增；从右向左扫先跳过未来的片，命中第一个
+   * `start <= time` 后立刻进入"角色判断"。
+   * LIVE：fragments 可能被 prune，本方法在剩余范围内仍正确。
+   */
+  private findFallbackFragForTime(
+    levelDetails: LevelDetails,
+    time: number,
+  ): MediaFragment | null {
+    const FAKE_SEGMENT_DURATION_THRESHOLD = 0.1;
+    const fragments = levelDetails.fragments;
+    for (let i = fragments.length - 1; i >= 0; i -= 1) {
+      const f = fragments[i];
+      if (!f) continue;
+      if (f.start > time) continue;
+      if (this.getChunkByFragment(f)) {
+        return f;
+      }
+      // 仅"有限正数且不超过阈值"才认定为伪片可跳过；
+      // duration 是 NaN / Infinity / 0 / 负数 / 大于阈值 都直接 return null
+      const duration = f.duration;
+      const isShortBypass =
+        Number.isFinite(duration) &&
+        duration > 0 &&
+        duration <= FAKE_SEGMENT_DURATION_THRESHOLD;
+      if (!isShortBypass) {
+        return null;
+      }
+      // 候选是伪片，继续向前扫
+    }
+    return null;
   }
 
   private getAlgoChunkKey(frag: Fragment): number {

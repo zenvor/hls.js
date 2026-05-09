@@ -57,6 +57,12 @@ export type AlgoFrameContext = {
   frameSize: number;
   mediaTime: number;
   localTime: number;
+  /**
+   * 命中前片末帧 fallback 时为 true，否则不存在（保持调用方不感知）。
+   * 仅在 `hls.config.algoBoundaryFallbackEnabled = true` 且当前 time 落在两片
+   * PTS 缝隙内时可能出现。调试面板可借此区分"真实帧"与"沿用上一帧"。
+   */
+  fallback?: boolean;
 };
 
 /**
