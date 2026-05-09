@@ -840,8 +840,8 @@ class AlgoDataController implements NetworkComponentAPI {
       const f = fragments[i];
       if (!f) continue;
       if (f.start > time) continue;
-      if (this.getChunkByFragment(f as MediaFragment)) {
-        return f as MediaFragment;
+      if (this.getChunkByFragment(f)) {
+        return f;
       }
       // 仅"有限正数且不超过阈值"才认定为伪片可跳过；
       // duration 是 NaN / Infinity / 0 / 负数 / 大于阈值 都直接 return null
