@@ -311,6 +311,7 @@ export type HlsConfig = {
   algoPreloadCount: number;
   algoCacheSize: number;
   algoFrameRate?: number;
+  algoBoundaryFallbackEnabled: boolean;
   loader: { new (confg: HlsConfig): Loader<LoaderContext> };
   fLoader?: FragmentLoaderConstructor;
   pLoader?: PlaylistLoaderConstructor;
@@ -446,6 +447,10 @@ export const hlsDefaultConfig: HlsConfig = {
   algoPreloadCount: 2,
   algoCacheSize: 10,
   algoFrameRate: undefined,
+  // 中文注释：算法分片在视频片之间插入伪片(_dat.ts)会污染 hls.js 内部 frag.duration，
+  // 造成切片边界时段返回 null。开启后允许"前片末帧 algo 沿用到 PTS 缝隙内"以填补黑窗。
+  // 默认关闭——其他场景(广告 discontinuity、源切换等)的 PTS 缝隙下沿用前片 algo 可能语义错误。
+  algoBoundaryFallbackEnabled: false,
   loader: XhrLoader,
   // loader: FetchLoader,
   fLoader: undefined, // used by fragment-loader

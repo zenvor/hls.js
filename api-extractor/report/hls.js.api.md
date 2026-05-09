@@ -170,6 +170,7 @@ export type AlgoFrameContext = {
     frameSize: number;
     mediaTime: number;
     localTime: number;
+    fallback?: boolean;
 };
 
 // Warning: (ae-missing-release-tag) "AssetListJSON" is part of the package's API, but it is missing a release tag (@alpha, @beta, @public, or @internal)
@@ -2486,6 +2487,7 @@ export type HlsConfig = {
     algoPreloadCount: number;
     algoCacheSize: number;
     algoFrameRate?: number;
+    algoBoundaryFallbackEnabled: boolean;
     loader: {
         new (confg: HlsConfig): Loader<LoaderContext>;
     };
