@@ -130,28 +130,54 @@ class AlgoDataController implements NetworkComponentAPI {
       return null;
     }
     const chunk = this.getChunkByFragment(frag);
-    if (!chunk || !Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
+    if (!chunk) {
       return null;
     }
     const localTime = time - frag.start;
-    const rawIndex = Math.floor(localTime * chunk.frameRate + 1e-6);
     const validFrameCount = this.getValidFrameCount(chunk);
-    if (rawIndex < 0) {
+    if (validFrameCount <= 0 || localTime < 0) {
       return null;
     }
-    // idx 越界处理：
-    //   - fallbackEnabled=false：返回 null，保留原行为，不影响未启用 fallback 的消费者
-    //   - fallbackEnabled=true：clamp 到 vfc-1 + 标记 fallback。覆盖以下两类场景：
-    //     (a) findFragmentByTime 因 frag.duration 被拉长而仍返回前片，但 time 已超过
-    //         前片真实视频帧覆盖范围（idx ≥ vfc）→ 沿用末帧 algo 至 frag 边界
-    //     (b) 已经走前片 fallback 分支（isFallback=true），主路径再次 idx 越界
-    let localFrameIndex = rawIndex;
-    if (rawIndex >= validFrameCount) {
-      if (!fallbackEnabled) {
+
+    let localFrameIndex: number;
+    let frameTime: number | undefined;
+    const frameTimeMatch = this.findFrameIndexByFrameTime(
+      chunk,
+      validFrameCount,
+      localTime,
+      fallbackEnabled,
+    );
+    if (frameTimeMatch !== undefined) {
+      if (frameTimeMatch === null) {
         return null;
       }
-      localFrameIndex = validFrameCount - 1;
-      isFallback = true;
+      localFrameIndex = frameTimeMatch.localFrameIndex;
+      frameTime = frameTimeMatch.frameTime;
+      if (frameTimeMatch.fallback) {
+        isFallback = true;
+      }
+    } else {
+      if (!Number.isFinite(chunk.frameRate) || chunk.frameRate <= 0) {
+        return null;
+      }
+      const rawIndex = Math.floor(localTime * chunk.frameRate + 1e-6);
+      if (rawIndex < 0) {
+        return null;
+      }
+      // idx 越界处理：
+      //   - fallbackEnabled=false：返回 null，保留原行为，不影响未启用 fallback 的消费者
+      //   - fallbackEnabled=true：clamp 到 vfc-1 + 标记 fallback。覆盖以下两类场景：
+      //     (a) findFragmentByTime 因 frag.duration 被拉长而仍返回前片，但 time 已超过
+      //         前片真实视频帧覆盖范围（idx ≥ vfc）→ 沿用末帧 algo 至 frag 边界
+      //     (b) 已经走前片 fallback 分支（isFallback=true），主路径再次 idx 越界
+      localFrameIndex = rawIndex;
+      if (rawIndex >= validFrameCount) {
+        if (!fallbackEnabled) {
+          return null;
+        }
+        localFrameIndex = validFrameCount - 1;
+        isFallback = true;
+      }
     }
     const frame = chunk.frames[localFrameIndex];
     if (!frame) {
@@ -169,6 +195,9 @@ class AlgoDataController implements NetworkComponentAPI {
       mediaTime: time,
       localTime,
     };
+    if (frameTime !== undefined) {
+      context.frameTime = frameTime;
+    }
     if (isFallback) {
       context.fallback = true;
     }
@@ -744,6 +773,114 @@ class AlgoDataController implements NetworkComponentAPI {
       startFrameIndex: message.frames[0]?.frameIdx ?? 1,
       frames: message.frames,
     };
+  }
+
+  private findFrameIndexByFrameTime(
+    chunk: AlgoChunk,
+    validFrameCount: number,
+    localTime: number,
+    fallbackEnabled: boolean,
+  ):
+    | { localFrameIndex: number; frameTime: number; fallback?: boolean }
+    | null
+    | undefined {
+    const frameTimes = this.getValidFrameTimes(chunk, validFrameCount);
+    if (!frameTimes) {
+      return undefined;
+    }
+
+    const timeTolerance = 1e-6;
+    const firstFrameTime = frameTimes[0];
+    if (localTime + timeTolerance < firstFrameTime) {
+      return null;
+    }
+
+    const lastFrameIndex = validFrameCount - 1;
+    const lastFrameTime = frameTimes[lastFrameIndex];
+    const lastFrameDuration = this.deriveLastFrameDuration(
+      frameTimes,
+      chunk.frameRate,
+    );
+    if (
+      lastFrameDuration > 0 &&
+      localTime >= lastFrameTime + lastFrameDuration - timeTolerance
+    ) {
+      if (!fallbackEnabled) {
+        return null;
+      }
+      return {
+        localFrameIndex: lastFrameIndex,
+        frameTime: lastFrameTime,
+        fallback: true,
+      };
+    }
+
+    let low = 0;
+    let high = lastFrameIndex;
+    let matchIndex = 0;
+    while (low <= high) {
+      const mid = (low + high) >> 1;
+      if (frameTimes[mid] <= localTime + timeTolerance) {
+        matchIndex = mid;
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
+    }
+
+    return {
+      localFrameIndex: matchIndex,
+      frameTime: frameTimes[matchIndex],
+    };
+  }
+
+  private getValidFrameTimes(
+    chunk: AlgoChunk,
+    validFrameCount: number,
+  ): number[] | null {
+    if (validFrameCount < 2) {
+      return null;
+    }
+
+    const frameTimes: number[] = [];
+    const timeTolerance = 1e-6;
+    let previousFrameTime = -Infinity;
+    for (let i = 0; i < validFrameCount; i += 1) {
+      const frameTime = this.getFrameTime(chunk.frames[i]);
+      if (frameTime === null) {
+        return null;
+      }
+      if (i === 0 && Math.abs(frameTime) > timeTolerance) {
+        return null;
+      }
+      if (i > 0 && frameTime <= previousFrameTime) {
+        return null;
+      }
+      frameTimes.push(frameTime);
+      previousFrameTime = frameTime;
+    }
+
+    return frameTimes;
+  }
+
+  private getFrameTime(frame: FrameItem | undefined): number | null {
+    const value = frame?.autoCameras?.reserved?.[0];
+    if (value === undefined || value === null) {
+      return null;
+    }
+    const frameTime = Number(value);
+    return Number.isFinite(frameTime) && frameTime >= 0 ? frameTime : null;
+  }
+
+  private deriveLastFrameDuration(
+    frameTimes: number[],
+    frameRate: number,
+  ): number {
+    const lastIndex = frameTimes.length - 1;
+    if (lastIndex > 0) {
+      return frameTimes[lastIndex] - frameTimes[lastIndex - 1];
+    }
+    return Number.isFinite(frameRate) && frameRate > 0 ? 1 / frameRate : 0;
   }
 
   private getValidFrameCount(chunk: AlgoChunk): number {

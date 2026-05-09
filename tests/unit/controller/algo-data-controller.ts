@@ -19,6 +19,8 @@ describe('AlgoDataController', function () {
       configFrameRate?: number;
       frameCount?: number;
       configBoundaryFallback?: boolean;
+      frameTimeStep?: number;
+      frameTimes?: number[];
     } = {},
   ) {
     const {
@@ -29,6 +31,8 @@ describe('AlgoDataController', function () {
       configFrameRate,
       frameCount = 100,
       configBoundaryFallback,
+      frameTimeStep,
+      frameTimes,
     } = options;
     const config = {
       ...hlsDefaultConfig,
@@ -66,7 +70,13 @@ describe('AlgoDataController', function () {
           x: index,
           y: 0,
           focus: 0,
-          reserved: [0, 0, 0, 0],
+          reserved: [
+            frameTimes?.[index] ??
+              (frameTimeStep !== undefined ? index * frameTimeStep : 0),
+            0,
+            0,
+            0,
+          ],
         },
         tracks: [],
         detections: [],
@@ -167,6 +177,72 @@ describe('AlgoDataController', function () {
       expect(frame).to.equal(frames[37]);
     });
 
+    it('should prefer frameTime in autoCameras.reserved[0] when available', function () {
+      const { controller, frames } = createControllerWithChunk({
+        frameRate: 25,
+        frameTimeStep: 0.02,
+      });
+
+      const context = controller.getFrameContextByTime(10.75);
+
+      expect(context?.frame).to.equal(frames[37]);
+      expect(context?.localFrameIndex).to.equal(37);
+      expect(context?.frameTime).to.be.closeTo(0.74, 0.000001);
+    });
+
+    it('should fall back to frameRate when frameTime values are not strictly increasing', function () {
+      const { controller, frames } = createControllerWithChunk({
+        frameTimeStep: 0.02,
+        frameTimes: [0, 0.02, 0.01],
+      });
+
+      const context = controller.getFrameContextByTime(10.06);
+
+      expect(context?.frame).to.equal(frames[3]);
+      expect(context?.localFrameIndex).to.equal(3);
+      expect(context?.frameTime).to.equal(undefined);
+    });
+
+    it('should fall back to frameRate when frameTime does not start near zero', function () {
+      const { controller, frames } = createControllerWithChunk({
+        frameTimeStep: 0.02,
+        frameTimes: [0.5, 0.52, 0.54],
+      });
+
+      const context = controller.getFrameContextByTime(10.06);
+
+      expect(context?.frame).to.equal(frames[3]);
+      expect(context?.localFrameIndex).to.equal(3);
+      expect(context?.frameTime).to.equal(undefined);
+    });
+
+    it('should fall back to frameRate for single-frame all-zero legacy data', function () {
+      const { controller, frames } = createControllerWithChunk({
+        frameCount: 1,
+        frameSize: 1,
+        frameTimeStep: 0,
+      });
+
+      const context = controller.getFrameContextByTime(10);
+
+      expect(context?.frame).to.equal(frames[0]);
+      expect(context?.localFrameIndex).to.equal(0);
+      expect(context?.frameTime).to.equal(undefined);
+    });
+
+    it('should keep the last frame inside its frameTime duration without fallback', function () {
+      const { controller, frames } = createControllerWithChunk({
+        frameTimeStep: 0.02,
+      });
+
+      const context = controller.getFrameContextByTime(11.99);
+
+      expect(context?.frame).to.equal(frames[99]);
+      expect(context?.localFrameIndex).to.equal(99);
+      expect(context?.frameTime).to.be.closeTo(1.98, 0.000001);
+      expect(context?.fallback).to.equal(undefined);
+    });
+
     it('should keep the last frame available near fragment end', function () {
       const { controller, frames } = createControllerWithChunk();
 
@@ -190,6 +266,7 @@ describe('AlgoDataController', function () {
       expect(context?.frameSize).to.equal(100);
       expect(context?.mediaTime).to.equal(10.02);
       expect(context?.localTime).to.be.closeTo(0.02, 0.000001);
+      expect(context?.frameTime).to.equal(undefined);
     });
 
     it('should return null when local frame index exceeds frameSize', function () {
@@ -245,6 +322,16 @@ describe('AlgoDataController', function () {
 
       expect(root.framesRaw).to.equal(frames);
     });
+
+    it('should preserve raw reserved[0] when parsing flat-array autoCamera', function () {
+      const { controller } = createControllerWithChunk();
+
+      const autoCamera = (controller as any).parseAutoCamera([
+        1, 2, 3, 0.02, 0, 0, 0,
+      ]);
+
+      expect(autoCamera.reserved[0]).to.equal(0.02);
+    });
   });
 
   describe('boundary fallback', function () {
@@ -257,6 +344,7 @@ describe('AlgoDataController', function () {
         cachePrev?: boolean;
         cacheNext?: boolean;
         prevDuration?: number;
+        frameTimeStep?: number;
       } = {},
     ) {
       const {
@@ -264,6 +352,7 @@ describe('AlgoDataController', function () {
         cachePrev = true,
         cacheNext = true,
         prevDuration = 10.0,
+        frameTimeStep,
       } = options;
       const config = {
         ...hlsDefaultConfig,
@@ -309,7 +398,12 @@ describe('AlgoDataController', function () {
             x: index,
             y: 0,
             focus: 0,
-            reserved: [0, 0, 0, 0],
+            reserved: [
+              frameTimeStep !== undefined ? index * frameTimeStep : 0,
+              0,
+              0,
+              0,
+            ],
           },
           tracks: [],
           detections: [],
@@ -435,6 +529,38 @@ describe('AlgoDataController', function () {
       expect(context?.fragSn).to.equal(1);
     });
 
+    it('clamps by last frameTime when prev frag.duration is inflated', function () {
+      // 新算法数据在 autoCameras.reserved[0] 携带分片内 frameTime。即使 frag.duration
+      // 被 hls.js 拉长，frameTime 仍能指出真实算法帧覆盖到 9.98s；time=10.2 应沿用末帧。
+      const { controller, prevFrames, prevFrag } =
+        createControllerWithTwoFragments({
+          fallbackEnabled: true,
+          prevDuration: 10.6287,
+          frameTimeStep: 0.02,
+        });
+
+      const context = controller.getFrameContextByTime(10.2);
+
+      expect(context).to.not.equal(null);
+      expect(context?.frame).to.equal(prevFrames[499]);
+      expect(context?.localFrameIndex).to.equal(499);
+      expect(context?.frameTime).to.be.closeTo(9.98, 0.000001);
+      expect(context?.fallback).to.equal(true);
+      expect(context?.frag).to.equal(prevFrag);
+      expect(context?.fragSn).to.equal(1);
+    });
+
+    it('returns null on frameTime tail overflow when fallback is disabled', function () {
+      const { controller } = createControllerWithTwoFragments({
+        fallbackEnabled: false,
+        prevDuration: 10.6287,
+        frameTimeStep: 0.02,
+      });
+
+      expect(controller.getFrameByTime(10.2)).to.equal(null);
+      expect(controller.getFrameContextByTime(10.2)).to.equal(null);
+    });
+
     it('clamps to frameSize-1 (not frames.length-1) on partial tail when fallback is enabled', function () {
       // partial 尾片：服务端只下发 200 帧 algo（frameSize=200），但 chunk.frames
       // 数组容量为 500（hls.js 缓存预分配/复用）。validFrameCount = min(200, 500) = 200。
@@ -446,7 +572,9 @@ describe('AlgoDataController', function () {
         frameSize: 200,
         frameCount: 500,
         configBoundaryFallback: true,
+        frameTimeStep: 0.02,
       });
+      frames[250].autoCameras.reserved[0] = NaN;
 
       const context = controller.getFrameContextByTime(4.5);
 
@@ -454,6 +582,7 @@ describe('AlgoDataController', function () {
       expect(context?.frame).to.equal(frames[199]);
       expect(context?.localFrameIndex).to.equal(199);
       expect(context?.frameSize).to.equal(200);
+      expect(context?.frameTime).to.be.closeTo(3.98, 0.000001);
       expect(context?.fallback).to.equal(true);
     });
 

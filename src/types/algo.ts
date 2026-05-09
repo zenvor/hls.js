@@ -4,6 +4,10 @@ export type AutoCameraItem = {
   x: number;
   y: number;
   focus: number;
+  /**
+   * reserved[0]: frameTime, seconds from the owning media fragment start.
+   * Valid frameTime sequences start near 0 and increase strictly.
+   */
   reserved: [number, number, number, number];
 };
 
@@ -57,6 +61,13 @@ export type AlgoFrameContext = {
   frameSize: number;
   mediaTime: number;
   localTime: number;
+  /**
+   * Matched algo frame's own time anchor in seconds from the owning media
+   * fragment start, when supplied by autoCameras.reserved[0]. Undefined means
+   * time lookup fell back to frameRate-based indexing. When fallback is true,
+   * this may be the last valid frameTime used for the clamped frame.
+   */
+  frameTime?: number;
   /**
    * 命中前片末帧 fallback 时为 true，否则不存在（保持调用方不感知）。
    * 仅在 `hls.config.algoBoundaryFallbackEnabled = true` 且当前 time 落在两片
