@@ -170,6 +170,7 @@ export type AlgoFrameContext = {
     frameSize: number;
     mediaTime: number;
     localTime: number;
+    frameTime?: number;
     fallback?: boolean;
 };
 
