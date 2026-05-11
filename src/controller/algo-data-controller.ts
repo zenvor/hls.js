@@ -895,12 +895,18 @@ class AlgoDataController implements NetworkComponentAPI {
   }
 
   private getFrameTime(frame: FrameItem | undefined): number | null {
+    // 算法侧约定：reserved[0] 为相对当前 media fragment 起点的 frameTime，
+    // 单位是整数毫秒。这里集中除以 1000 折算成秒，使后续比较与 hls.js 全局
+    // 时间单位（秒）保持一致；double 精度误差 ~1e-19s 远小于 1e-6s 的比较容差。
     const value = frame?.autoCameras?.reserved?.[0];
     if (value === undefined || value === null) {
       return null;
     }
-    const frameTime = Number(value);
-    return Number.isFinite(frameTime) && frameTime >= 0 ? frameTime : null;
+    const frameTimeMs = Number(value);
+    if (!Number.isFinite(frameTimeMs) || frameTimeMs < 0) {
+      return null;
+    }
+    return frameTimeMs / 1000;
   }
 
   private warnInvalidFrameTime(

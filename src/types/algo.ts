@@ -5,8 +5,11 @@ export type AutoCameraItem = {
   y: number;
   focus: number;
   /**
-   * reserved[0]: frameTime, seconds from the owning media fragment start.
-   * Valid frameTime sequences start near 0 and increase strictly.
+   * reserved[0]: frameTime in integer milliseconds from the owning media
+   * fragment start. AlgoDataController converts to seconds internally for
+   * time-based lookup; `AutoCameraItem.reserved` keeps the raw integer
+   * milliseconds as delivered by the algo side.
+   * Valid frameTime sequences start at 0 and strictly increase.
    */
   reserved: [number, number, number, number];
 };

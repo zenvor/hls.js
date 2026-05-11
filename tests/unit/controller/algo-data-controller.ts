@@ -179,9 +179,10 @@ describe('AlgoDataController', function () {
     });
 
     it('should prefer frameTime in autoCameras.reserved[0] when available', function () {
+      // frameTimeStep 单位为 ms（reserved[0] 协议）；输出 frameTime 仍是秒。
       const { controller, frames } = createControllerWithChunk({
         frameRate: 25,
-        frameTimeStep: 0.02,
+        frameTimeStep: 20,
       });
 
       const context = controller.getFrameContextByTime(10.75);
@@ -193,8 +194,8 @@ describe('AlgoDataController', function () {
 
     it('should fall back to frameRate when frameTime values are not strictly increasing', function () {
       const { controller, frames } = createControllerWithChunk({
-        frameTimeStep: 0.02,
-        frameTimes: [0, 0.02, 0.01],
+        frameTimeStep: 20,
+        frameTimes: [0, 20, 10],
       });
 
       const context = controller.getFrameContextByTime(10.06);
@@ -206,8 +207,8 @@ describe('AlgoDataController', function () {
 
     it('should fall back to frameRate when frameTime does not start near zero', function () {
       const { controller, frames } = createControllerWithChunk({
-        frameTimeStep: 0.02,
-        frameTimes: [0.5, 0.52, 0.54],
+        frameTimeStep: 20,
+        frameTimes: [500, 520, 540],
       });
 
       const context = controller.getFrameContextByTime(10.06);
@@ -233,7 +234,7 @@ describe('AlgoDataController', function () {
 
     it('should keep the last frame inside its frameTime duration without fallback', function () {
       const { controller, frames } = createControllerWithChunk({
-        frameTimeStep: 0.02,
+        frameTimeStep: 20,
       });
 
       const context = controller.getFrameContextByTime(11.99);
@@ -351,13 +352,14 @@ describe('AlgoDataController', function () {
     });
 
     it('should preserve raw reserved[0] when parsing flat-array autoCamera', function () {
+      // parseAutoCamera 不做单位换算，保留协议层面的整数 ms 原值。
       const { controller } = createControllerWithChunk();
 
       const autoCamera = (controller as any).parseAutoCamera([
-        1, 2, 3, 0.02, 0, 0, 0,
+        1, 2, 3, 20, 0, 0, 0,
       ]);
 
-      expect(autoCamera.reserved[0]).to.equal(0.02);
+      expect(autoCamera.reserved[0]).to.equal(20);
     });
   });
 
@@ -557,13 +559,14 @@ describe('AlgoDataController', function () {
     });
 
     it('clamps by last frameTime when prev frag.duration is inflated', function () {
-      // 新算法数据在 autoCameras.reserved[0] 携带分片内 frameTime。即使 frag.duration
-      // 被 hls.js 拉长，frameTime 仍能指出真实算法帧覆盖到 9.98s；time=10.2 应沿用末帧。
+      // 新算法数据在 autoCameras.reserved[0] 携带分片内 frameTime（整数 ms）。即使
+      // frag.duration 被 hls.js 拉长，frameTime 仍能指出真实算法帧覆盖到 9.98s；
+      // time=10.2 应沿用末帧。
       const { controller, prevFrames, prevFrag } =
         createControllerWithTwoFragments({
           fallbackEnabled: true,
           prevDuration: 10.6287,
-          frameTimeStep: 0.02,
+          frameTimeStep: 20,
         });
 
       const context = controller.getFrameContextByTime(10.2);
@@ -581,7 +584,7 @@ describe('AlgoDataController', function () {
       const { controller } = createControllerWithTwoFragments({
         fallbackEnabled: false,
         prevDuration: 10.6287,
-        frameTimeStep: 0.02,
+        frameTimeStep: 20,
       });
 
       expect(controller.getFrameByTime(10.2)).to.equal(null);
@@ -599,7 +602,7 @@ describe('AlgoDataController', function () {
         frameSize: 200,
         frameCount: 500,
         configBoundaryFallback: true,
-        frameTimeStep: 0.02,
+        frameTimeStep: 20,
       });
       frames[250].autoCameras.reserved[0] = NaN;
 

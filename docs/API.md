@@ -2173,7 +2173,7 @@ These methods are available when algo data loading is enabled (`algoDataEnabled 
 
 ### `hls.getAlgoFrameContextByTime(time: number)`
 
-- get: Returns an `AlgoFrameContext` describing the frame at the given playback time in seconds, including the owning chunk, the source media fragment, the 0-based `localFrameIndex` within the chunk, the chunk `frameRate`, the valid `frameSize` (capped by both the server-declared size and the actually decoded frame count), the resolved `mediaTime` / `localTime`, and optional `frameTime` when the matched algo frame supplies a per-fragment time anchor in `autoCameras.reserved[0]`. `frameTime` is undefined when lookup falls back to frameRate-based indexing. Valid frameTime sequences must start near zero and increase strictly; invalid sequences fall back to frameRate-based indexing. Returns `null` when not available.
+- get: Returns an `AlgoFrameContext` describing the frame at the given playback time in seconds, including the owning chunk, the source media fragment, the 0-based `localFrameIndex` within the chunk, the chunk `frameRate`, the valid `frameSize` (capped by both the server-declared size and the actually decoded frame count), the resolved `mediaTime` / `localTime`, and optional `frameTime` (in seconds) when the matched algo frame supplies a per-fragment time anchor in `autoCameras.reserved[0]`. `autoCameras.reserved[0]` is delivered as integer milliseconds from the owning fragment start and converted to seconds internally. `frameTime` is undefined when lookup falls back to frameRate-based indexing. Valid frameTime sequences must start at 0 and strictly increase; invalid sequences fall back to frameRate-based indexing. Returns `null` when not available.
 
 ### `hls.getAlgoFrameByIndex(frameIdx: number)`
 
